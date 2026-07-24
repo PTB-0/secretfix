@@ -33,8 +33,8 @@ jobs:
       # The suite drives real git repositories, so git needs an identity.
       - name: Configure git identity
         run: |
-          git config --global user.email "ci@commitguard.test"
-          git config --global user.name "CommitGuard CI"
+          git config --global user.email "ci@secretfix.test"
+          git config --global user.name "SecretFix CI"
           git config --global init.defaultBranch master
 
       - run: pnpm test
@@ -64,22 +64,22 @@ jobs:
           npm pack
           mkdir -p /tmp/consumer && cd /tmp/consumer
           npm init -y
-          git init -q . && git config user.email ci@commitguard.test && git config user.name CI
+          git init -q . && git config user.email ci@secretfix.test && git config user.name CI
           printf 'node_modules/\n' > .gitignore
-          npm install --no-audit --no-fund "$GITHUB_WORKSPACE"/commitguard-*.tgz
-          npx commitguard --version
-          npx commitguard init
+          npm install --no-audit --no-fund "$GITHUB_WORKSPACE"/secretfix-*.tgz
+          npx secretfix --version
+          npx secretfix init
 
       - name: A staged secret must block, clean code must pass
         run: |
           cd /tmp/consumer
           printf 'const k = "AKIAABCDEFGHIJKLMNOP";\n' > leak.js
           git add leak.js
-          if npx commitguard scan --no-deps < /dev/null; then
-            echo "::error::commitguard exited 0 on a staged AWS key"
+          if npx secretfix scan --no-deps < /dev/null; then
+            echo "::error::secretfix exited 0 on a staged AWS key"
             exit 1
           fi
           git rm -q --cached leak.js && rm leak.js
           printf 'const total = price * quantity;\n' > calc.js
           git add calc.js
-          npx commitguard scan --no-deps < /dev/null
+          npx secretfix scan --no-deps < /dev/null

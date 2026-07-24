@@ -67,9 +67,9 @@ function createPrompt(): PromptFn {
 export function buildProgram(): Command {
   const program = new Command();
   program
-    .name('commitguard')
+    .name('secretfix')
     .description('Pre-commit security guardrail for vibe coders')
-    .version(version, '-v, --version', 'print the commitguard version');
+    .version(version, '-v, --version', 'print the secretfix version');
 
   program
     .command('scan')
@@ -95,7 +95,7 @@ export function buildProgram(): Command {
 
   program
     .command('init')
-    .description('Install the CommitGuard pre-commit hook in this repository')
+    .description('Install the SecretFix pre-commit hook in this repository')
     .action(() => {
       initCommand(process.cwd());
     });
@@ -108,7 +108,7 @@ export function run(argv: string[]): void {
     .parseAsync(argv)
     .catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`commitguard: ${message}`);
+      console.error(`secretfix: ${message}`);
       process.exitCode = 1;
     });
 }

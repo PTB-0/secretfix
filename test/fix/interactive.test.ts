@@ -29,7 +29,7 @@ function owaspFinding(line: number, patternName: string, sourceLine: string): Fi
       kind: 'replace-line',
       file: 'a.js',
       line,
-      replacement: `// commitguard: review this line manually — ${patternName}\n${sourceLine}`
+      replacement: `// secretfix: review this line manually — ${patternName}\n${sourceLine}`
     }
   };
 }
@@ -116,7 +116,7 @@ describe('resolveFindings applied against real files', () => {
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'commitguard-interactive-'));
+    dir = mkdtempSync(join(tmpdir(), 'secretfix-interactive-'));
   });
 
   afterEach(() => {
@@ -138,10 +138,10 @@ describe('resolveFindings applied against real files', () => {
     expect(result.unresolved).toHaveLength(0);
     expect(readFileSync(join(dir, 'a.js'), 'utf8')).toBe(
       [
-        '// commitguard: review this line manually — eval-usage',
+        '// secretfix: review this line manually — eval-usage',
         'eval(one);',
         'const safe = 1;',
-        '// commitguard: review this line manually — eval-usage',
+        '// secretfix: review this line manually — eval-usage',
         'eval(two);',
         ''
       ].join('\n')
@@ -164,8 +164,8 @@ describe('resolveFindings applied against real files', () => {
     expect(result.resolved).toHaveLength(2);
     expect(readFileSync(join(dir, 'a.js'), 'utf8')).toBe(
       [
-        '// commitguard: review this line manually — eval-usage',
-        '// commitguard: review this line manually — sql-string-concat',
+        '// secretfix: review this line manually — eval-usage',
+        '// secretfix: review this line manually — sql-string-concat',
         source,
         ''
       ].join('\n')

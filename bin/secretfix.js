@@ -2,6 +2,6 @@
 import('../dist/cli.js')
   .then((mod) => mod.run(process.argv))
   .catch((err) => {
-    console.error(`commitguard: failed to start — ${err.message}`);
+    console.error(`secretfix: failed to start — ${err.message}`);
     process.exitCode = 1;
   });

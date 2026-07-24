@@ -8,7 +8,7 @@ describe('cli', () => {
     expect(names).toEqual(['scan', 'init']);
   });
 
-  it('sets the program name to commitguard', () => {
-    expect(buildProgram().name()).toBe('commitguard');
+  it('sets the program name to secretfix', () => {
+    expect(buildProgram().name()).toBe('secretfix');
   });
 });

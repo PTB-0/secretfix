@@ -1,5 +1,5 @@
 {
-  "name": "commitguard",
+  "name": "secretfix",
   "version": "0.1.0",
   "description": "Finds and automatically fixes leaked secrets, insecure patterns and vulnerable dependencies in your git pre-commit hook — zero false positives on code you did not touch",
   "keywords": [
@@ -23,15 +23,15 @@
   "author": "ege <ege@projecthebest.com>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PTB-0/commitguard.git"
+    "url": "git+https://github.com/PTB-0/secretfix.git"
   },
-  "homepage": "https://github.com/PTB-0/commitguard#readme",
+  "homepage": "https://github.com/PTB-0/secretfix#readme",
   "bugs": {
-    "url": "https://github.com/PTB-0/commitguard/issues"
+    "url": "https://github.com/PTB-0/secretfix/issues"
   },
   "type": "module",
   "bin": {
-    "commitguard": "bin/commitguard.js"
+    "secretfix": "bin/secretfix.js"
   },
   "files": [
     "bin",

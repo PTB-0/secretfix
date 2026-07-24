@@ -12,10 +12,10 @@ function git(args: string[]): void {
 }
 
 beforeEach(() => {
-  repoDir = mkdtempSync(join(tmpdir(), 'commitguard-git-'));
+  repoDir = mkdtempSync(join(tmpdir(), 'secretfix-git-'));
   git(['init']);
-  git(['config', 'user.email', 'test@commitguard.dev']);
-  git(['config', 'user.name', 'CommitGuard Test']);
+  git(['config', 'user.email', 'test@secretfix.dev']);
+  git(['config', 'user.name', 'SecretFix Test']);
 });
 
 afterEach(() => {
