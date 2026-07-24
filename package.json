@@ -26,7 +26,7 @@
   },
   "type": "module",
   "bin": {
-    "vibeguard": "./bin/vibeguard.js"
+    "vibeguard": "bin/vibeguard.js"
   },
   "files": [
     "bin",
