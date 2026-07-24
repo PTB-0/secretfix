@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { Command } from 'commander';
 import promptsLib from 'prompts';
 import { scanCommand } from './commands/scan.js';
@@ -15,21 +16,53 @@ const SEVERITY_LABEL: Record<Finding['severity'], string> = {
   low: 'LOW'
 };
 
-/**
- * Falls back to 'skip' whenever the answer cannot be read — a hook running without
- * a usable stdin must block the commit, never wave it through.
- */
-const realPrompt: PromptFn = async (finding: Finding) => {
+function normalizeAnswer(raw: string | undefined): 'y' | 'n' | 'skip' {
+  const answer = (raw ?? 'skip').trim().toLowerCase();
+  if (answer === 'y' || answer === 'yes') return 'y';
+  if (answer === 'n' || answer === 'no') return 'n';
+  return 'skip';
+}
+
+const interactivePrompt: PromptFn = async (finding: Finding) => {
   const response = await promptsLib({
     type: 'text',
     name: 'answer',
     message: `[${SEVERITY_LABEL[finding.severity]}] Fix this now? (${finding.file}:${finding.line}) [y/n/skip]`
   });
-  const answer = (response.answer ?? 'skip').toString().trim().toLowerCase();
-  if (answer === 'y' || answer === 'yes') return 'y';
-  if (answer === 'n' || answer === 'no') return 'n';
-  return 'skip';
+  return normalizeAnswer(response.answer === undefined ? undefined : String(response.answer));
 };
+
+/**
+ * Without a terminal, `prompts` renders its question and then never settles once
+ * stdin hits EOF — which used to let the process fall off the end of the event
+ * loop and exit 0, silently waving a leaked secret into the commit.
+ *
+ * So when stdin is not a TTY it is drained up front instead: piped answers are
+ * consumed in order, and an empty stdin (a hook launched from a GUI client, CI,
+ * `git commit < /dev/null`) yields 'skip' for every finding, which blocks.
+ */
+function createScriptedPrompt(): PromptFn {
+  let answers: string[] | undefined;
+  let index = 0;
+
+  return async (finding: Finding) => {
+    if (answers === undefined) {
+      try {
+        answers = readFileSync(0, 'utf8').split('\n');
+      } catch {
+        answers = [];
+      }
+    }
+    const answer = normalizeAnswer(answers[index]);
+    index += 1;
+    console.log(`[${SEVERITY_LABEL[finding.severity]}] ${finding.file}:${finding.line} — answered "${answer}"`);
+    return answer;
+  };
+}
+
+function createPrompt(): PromptFn {
+  return process.stdin.isTTY === true ? interactivePrompt : createScriptedPrompt();
+}
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -45,13 +78,15 @@ export function buildProgram(): Command {
     .option('--no-owasp', 'disable the OWASP pattern scanner')
     .option('--no-deps', 'disable the dependency CVE scanner')
     .action(async (opts: { secrets: boolean; owasp: boolean; deps: boolean }) => {
-      const exitCode = await scanCommand({
+      // Fail closed: anything that ends this process before the scan reports a
+      // clean result — a crash, an unsettled promise — must block the commit.
+      process.exitCode = 1;
+      process.exitCode = await scanCommand({
         noSecrets: !opts.secrets,
         noOwasp: !opts.owasp,
         noDeps: !opts.deps,
-        prompt: realPrompt
+        prompt: createPrompt()
       });
-      process.exitCode = exitCode;
     });
 
   program
