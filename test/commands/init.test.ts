@@ -63,6 +63,19 @@ describe('initCommand', () => {
     expect(hook).toContain('npx vibeguard scan');
   });
 
+  it("replaces husky's npm test placeholder when init installed husky itself", () => {
+    const installHusky = vi.fn((target: string) => {
+      mkdirSync(join(target, '.husky'), { recursive: true });
+      writeFileSync(join(target, '.husky', 'pre-commit'), 'npm test\n');
+    });
+
+    initCommand(dir, { installHusky });
+
+    const hook = readFileSync(join(dir, '.husky', 'pre-commit'), 'utf8');
+    expect(hook).toContain('npx vibeguard scan');
+    expect(hook).not.toContain('npm test');
+  });
+
   it('is idempotent — a second run does not add the invocation twice', () => {
     initCommand(dir, { installHusky: vi.fn() });
     initCommand(dir, { installHusky: vi.fn() });

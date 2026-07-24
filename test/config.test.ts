@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadConfig, applyCliOverrides, isIgnored, hasIgnoreMarker, defaultConfig } from '../src/config.js';
+import { loadConfig, applyCliOverrides, isIgnored, isExcluded, hasIgnoreMarker, defaultConfig } from '../src/config.js';
 
 let dir: string;
 
@@ -48,6 +48,32 @@ describe('config', () => {
     const config = loadConfig(dir);
     expect(config.secrets).toBe(true);
     expect(config.ignoreLines).toEqual({});
+  });
+});
+
+describe('isExcluded', () => {
+  it('excludes vendored dependencies at any depth', () => {
+    expect(isExcluded(defaultConfig, 'node_modules/left-pad/index.js')).toBe(true);
+    expect(isExcluded(defaultConfig, 'packages/api/node_modules/left-pad/index.js')).toBe(true);
+  });
+
+  it('excludes lockfiles and minified bundles by default', () => {
+    expect(isExcluded(defaultConfig, 'pnpm-lock.yaml')).toBe(true);
+    expect(isExcluded(defaultConfig, 'apps/web/package-lock.json')).toBe(true);
+    expect(isExcluded(defaultConfig, 'public/app.min.js')).toBe(true);
+  });
+
+  it('does not exclude ordinary source files', () => {
+    expect(isExcluded(defaultConfig, 'src/index.ts')).toBe(false);
+    expect(isExcluded(defaultConfig, 'src/node_modules_helper.ts')).toBe(false);
+  });
+
+  it('keeps the built-in excludes when the user adds their own', () => {
+    writeFileSync(join(dir, '.vibeguardrc.json'), JSON.stringify({ excludeFiles: ['test/fixtures/'] }));
+    const config = loadConfig(dir);
+
+    expect(isExcluded(config, 'test/fixtures/keys.ts')).toBe(true);
+    expect(isExcluded(config, 'pnpm-lock.yaml')).toBe(true);
   });
 });
 

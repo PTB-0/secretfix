@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { buildHookScript } from '../../src/commands/init.js';
 
 const binPath = join(process.cwd(), 'bin', 'vibeguard.js');
 
@@ -23,11 +24,16 @@ function runCli(args: string[], input = ''): { status: number; output: string } 
   }
 }
 
-/** Installs a hook that runs this working copy's CLI, standing in for `npx vibeguard`. */
+/**
+ * Installs the real hook script that `vibeguard init` generates, with only the
+ * invocation swapped for this working copy's CLI. Hand-writing a simpler hook
+ * here would leave the generated shell logic — the /dev/tty probe in particular
+ * — completely untested.
+ */
 function installLocalHook(): void {
   mkdirSync(join(repoDir, '.git', 'hooks'), { recursive: true });
-  const hookPath = join(repoDir, '.git', 'hooks', 'pre-commit');
-  writeFileSync(hookPath, `#!/usr/bin/env sh\nnode "${binPath.replace(/\\/g, '/')}" scan --no-deps\n`);
+  const invocation = `node "${binPath.replace(/\\/g, '/')}" scan --no-deps`;
+  writeFileSync(join(repoDir, '.git', 'hooks', 'pre-commit'), `#!/usr/bin/env sh\n${buildHookScript(invocation)}`);
 }
 
 beforeEach(() => {

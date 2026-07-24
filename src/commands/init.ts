@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import { defaultConfig } from '../config.js';
 
 export interface InitDeps {
@@ -8,33 +8,51 @@ export interface InitDeps {
 }
 
 function defaultInstallHusky(cwd: string): void {
-  // On Windows `npx` is a .cmd shim, which execFile cannot spawn by bare name.
-  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  execFileSync(npx, ['husky', 'init'], { cwd, stdio: 'ignore' });
+  // Run through a shell deliberately. On Windows `npx` is a .cmd shim, and since
+  // the CVE-2024-27980 fix Node refuses to spawn .cmd/.bat directly (EINVAL).
+  // execSync takes one static string, so there is nothing to escape — never build
+  // this command from user input.
+  execSync('npx husky init', { cwd, stdio: 'ignore' });
 }
 
 const HOOK_INVOCATION = 'npx vibeguard scan';
 
-// git runs hooks without a terminal, so reattach one when it is available —
-// otherwise the interactive fix prompts cannot be answered and every finding
-// falls through to "skip", blocking the commit.
-const TTY_REATTACH = 'if [ -r /dev/tty ]; then exec < /dev/tty; fi';
+/**
+ * git runs hooks without a terminal, so the interactive fix prompts need one
+ * reattached — otherwise every finding falls through to "skip".
+ *
+ * The probe runs in a subshell on purpose. `/dev/tty` can exist and pass `-r`
+ * while still failing to open (CI, GUI git clients, no controlling terminal),
+ * and a failed redirect on a bare `exec` kills a non-interactive shell outright
+ * — which would make the hook abort before vibeguard ever ran, blocking every
+ * commit, clean ones included. A subshell absorbs that failure.
+ */
+export function buildHookScript(invocation: string): string {
+  return `if (exec < /dev/tty) 2>/dev/null; then
+  vibeguard_stdin=/dev/tty
+else
+  vibeguard_stdin=/dev/null
+fi
+${invocation} < "$vibeguard_stdin"
+`;
+}
 
 const HOOK_CONTENT = `#!/usr/bin/env sh
 # Installed by \`vibeguard init\`. Delete this file to remove the hook.
-${TTY_REATTACH}
-${HOOK_INVOCATION}
-`;
+${buildHookScript(HOOK_INVOCATION)}`;
 
 const APPENDED_HOOK = `
 # --- vibeguard ---
-${TTY_REATTACH}
-${HOOK_INVOCATION}
-`;
+${buildHookScript(HOOK_INVOCATION)}`;
 
-/** Writes the hook without discarding one the project already had. */
-function writeHook(hookPath: string): 'created' | 'appended' | 'unchanged' {
-  if (!existsSync(hookPath)) {
+/**
+ * Writes the hook without discarding one the project already had. `replace` is
+ * set when this run installed husky itself: the only thing that can be in the
+ * hook then is husky's own `npm test` placeholder, which would fail every commit
+ * in a project without a test script.
+ */
+function writeHook(hookPath: string, replace: boolean): 'created' | 'appended' | 'unchanged' {
+  if (replace || !existsSync(hookPath)) {
     writeFileSync(hookPath, HOOK_CONTENT);
     chmodSync(hookPath, 0o755);
     return 'created';
@@ -54,10 +72,12 @@ function writeHook(hookPath: string): 'created' | 'appended' | 'unchanged' {
 export function initCommand(cwd: string, deps: InitDeps = { installHusky: defaultInstallHusky }): void {
   const huskyDir = join(cwd, '.husky');
   let hookDir = huskyDir;
+  let huskyInstalledNow = false;
 
   if (!existsSync(huskyDir)) {
     try {
       deps.installHusky(cwd);
+      huskyInstalledNow = true;
     } catch {
       // husky needs network on first run and a git repo; fall back to the plain
       // git hook rather than leaving the project with no protection at all.
@@ -71,7 +91,7 @@ export function initCommand(cwd: string, deps: InitDeps = { installHusky: defaul
   }
 
   mkdirSync(hookDir, { recursive: true });
-  const outcome = writeHook(join(hookDir, 'pre-commit'));
+  const outcome = writeHook(join(hookDir, 'pre-commit'), huskyInstalledNow);
 
   const configPath = join(cwd, '.vibeguardrc.json');
   if (!existsSync(configPath)) {

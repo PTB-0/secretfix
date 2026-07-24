@@ -16,6 +16,8 @@ export interface VibeGuardConfig {
  * false positive on essentially every commit that touches them.
  */
 const DEFAULT_EXCLUDES: string[] = [
+  'node_modules/',
+  'vendor/',
   'package-lock.json',
   'pnpm-lock.yaml',
   'yarn.lock',
@@ -102,9 +104,14 @@ export function loadConfig(cwd: string): VibeGuardConfig {
  */
 export function isExcluded(config: VibeGuardConfig, path: string): boolean {
   const name = path.split('/').pop() ?? path;
-  return config.excludeFiles.some(
-    (entry) => path === entry || name === entry || path.endsWith(entry) || (entry.endsWith('/') && path.startsWith(entry))
-  );
+  return config.excludeFiles.some((entry) => {
+    // A directory entry matches at any depth, so a monorepo's
+    // packages/api/node_modules/ is skipped as well as the root one.
+    if (entry.endsWith('/')) {
+      return path.startsWith(entry) || path.includes(`/${entry}`);
+    }
+    return path === entry || name === entry || path.endsWith(entry);
+  });
 }
 
 export interface CliOverrides {
