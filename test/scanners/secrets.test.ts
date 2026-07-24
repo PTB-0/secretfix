@@ -33,4 +33,34 @@ describe('secretsScanner', () => {
     ]);
     expect(findings).toHaveLength(0);
   });
+
+  it('captures only the secret value in the fix, not the whole assignment', async () => {
+    const findings = await secretsScanner.scan([
+      { path: 'server.js', content: 'const apiKey = "thisIsASecretValue123";' }
+    ]);
+    expect(findings[0].fix).toEqual({
+      kind: 'move-to-env',
+      file: 'server.js',
+      line: 1,
+      envVarName: 'API_KEY',
+      secretValue: 'thisIsASecretValue123'
+    });
+  });
+
+  it('names the env var after the known pattern when there is no identifier', async () => {
+    const findings = await secretsScanner.scan([
+      { path: 'config.js', content: 'const key = "AKIAABCDEFGHIJKLMNOP";' }
+    ]);
+    expect(findings[0].fix).toMatchObject({
+      envVarName: 'AWS_ACCESS_KEY',
+      secretValue: 'AKIAABCDEFGHIJKLMNOP'
+    });
+  });
+
+  it('reports the correct line number for a secret further down the file', async () => {
+    const findings = await secretsScanner.scan([
+      { path: 'config.js', content: '// header\n\nconst key = "AKIAABCDEFGHIJKLMNOP";\n' }
+    ]);
+    expect(findings[0].line).toBe(3);
+  });
 });

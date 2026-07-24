@@ -3,6 +3,10 @@ import type { Finding, Scanner, StagedFile } from '../types.js';
 interface SecretPattern {
   name: string;
   regex: RegExp;
+  /** Capture group holding only the secret itself. Defaults to the whole match. */
+  valueGroup?: number;
+  /** Capture group holding the identifier the secret is assigned to, used to name the env var. */
+  nameGroup?: number;
 }
 
 const KNOWN_PATTERNS: SecretPattern[] = [
@@ -11,9 +15,20 @@ const KNOWN_PATTERNS: SecretPattern[] = [
   { name: 'OpenAI API Key', regex: /sk-[a-zA-Z0-9]{32,}/g },
   {
     name: 'Generic assigned secret',
-    regex: /(?:api[_-]?key|secret|token|password)\s*[:=]\s*["'][^"'\s]{12,}["']/gi
+    regex: /((?:api[_-]?key|secret|token|password)\w*)\s*[:=]\s*["']([^"'\s]{12,})["']/gi,
+    nameGroup: 1,
+    valueGroup: 2
   }
 ];
+
+/** `apiKey` -> `API_KEY`, `AWS Access Key` -> `AWS_ACCESS_KEY`. */
+function toEnvVarName(raw: string): string {
+  return raw
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
 
 const HIGH_ENTROPY_TOKEN = /["'][A-Za-z0-9+/_=-]{20,}["']/g;
 const ENTROPY_THRESHOLD = 4.0;
@@ -43,6 +58,11 @@ export const secretsScanner: Scanner = {
           pattern.regex.lastIndex = 0;
           const match = pattern.regex.exec(line);
           if (match) {
+            // Only the secret itself may go into .env — capturing the surrounding
+            // assignment would write `API_KEY=apiKey = "..."` and mangle the source line.
+            const secretValue = pattern.valueGroup ? match[pattern.valueGroup] : match[0];
+            const identifier = pattern.nameGroup ? match[pattern.nameGroup] : pattern.name;
+
             findings.push({
               scanner: 'secrets',
               severity: 'critical',
@@ -53,8 +73,8 @@ export const secretsScanner: Scanner = {
                 kind: 'move-to-env',
                 file: file.path,
                 line: index + 1,
-                envVarName: pattern.name.toUpperCase().replace(/[^A-Z0-9]+/g, '_'),
-                secretValue: match[0]
+                envVarName: toEnvVarName(identifier),
+                secretValue
               }
             });
             return;
