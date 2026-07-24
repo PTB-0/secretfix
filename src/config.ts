@@ -1,5 +1,9 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Severity } from './types.js';
+
+/** 'added-lines' judges only what this commit introduces; 'whole-file' judges everything. */
+export type ScanMode = 'added-lines' | 'whole-file';
 
 export interface VibeGuardConfig {
   secrets: boolean;
@@ -8,6 +12,22 @@ export interface VibeGuardConfig {
   ignoreLines: Record<string, number[]>;
   /** Paths never scanned. User entries are added to the built-in list, not replacing it. */
   excludeFiles: string[];
+  scanMode: ScanMode;
+  /** Lowest severity that blocks a commit. Anything below is reported as a warning. */
+  failOn: Severity;
+}
+
+const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+
+const SEVERITIES = Object.keys(SEVERITY_RANK) as Severity[];
+
+/** True when `severity` is at least as serious as the configured threshold. */
+export function blocksCommit(config: VibeGuardConfig, severity: Severity): boolean {
+  return SEVERITY_RANK[severity] <= SEVERITY_RANK[config.failOn];
+}
+
+export function compareSeverity(a: Severity, b: Severity): number {
+  return SEVERITY_RANK[a] - SEVERITY_RANK[b];
 }
 
 /**
@@ -38,7 +58,12 @@ const DEFAULT_CONFIG: VibeGuardConfig = {
   owasp: true,
   deps: true,
   ignoreLines: {},
-  excludeFiles: DEFAULT_EXCLUDES
+  excludeFiles: DEFAULT_EXCLUDES,
+  scanMode: 'added-lines',
+  // critical/high block; medium and low are reported but let the commit through.
+  // Blocking on every medium (Math.random in an animation, a moderate advisory)
+  // trains people to reach for --no-verify, which is worse than not gating at all.
+  failOn: 'high'
 };
 
 /**
@@ -94,7 +119,9 @@ export function loadConfig(cwd: string): VibeGuardConfig {
     owasp: readBoolean(parsed.owasp, DEFAULT_CONFIG.owasp),
     deps: readBoolean(parsed.deps, DEFAULT_CONFIG.deps),
     ignoreLines: readIgnoreLines(parsed.ignoreLines),
-    excludeFiles: [...DEFAULT_EXCLUDES, ...userExcludes]
+    excludeFiles: [...DEFAULT_EXCLUDES, ...userExcludes],
+    scanMode: parsed.scanMode === 'whole-file' ? 'whole-file' : DEFAULT_CONFIG.scanMode,
+    failOn: SEVERITIES.includes(parsed.failOn as Severity) ? (parsed.failOn as Severity) : DEFAULT_CONFIG.failOn
   };
 }
 
@@ -118,6 +145,8 @@ export interface CliOverrides {
   noSecrets?: boolean;
   noOwasp?: boolean;
   noDeps?: boolean;
+  wholeFile?: boolean;
+  failOn?: string;
 }
 
 export function applyCliOverrides(config: VibeGuardConfig, overrides: CliOverrides): VibeGuardConfig {
@@ -125,7 +154,9 @@ export function applyCliOverrides(config: VibeGuardConfig, overrides: CliOverrid
     ...config,
     secrets: overrides.noSecrets ? false : config.secrets,
     owasp: overrides.noOwasp ? false : config.owasp,
-    deps: overrides.noDeps ? false : config.deps
+    deps: overrides.noDeps ? false : config.deps,
+    scanMode: overrides.wholeFile ? 'whole-file' : config.scanMode,
+    failOn: SEVERITIES.includes(overrides.failOn as Severity) ? (overrides.failOn as Severity) : config.failOn
   };
 }
 

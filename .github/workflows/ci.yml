@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  test:
+    # Windows is not optional here: three bugs found while building this tool were
+    # Windows-only (npx .cmd spawn, /dev/tty handling, path separators).
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [20, 22]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The suite drives real git repositories, so git needs an identity.
+      - name: Configure git identity
+        run: |
+          git config --global user.email "ci@vibeguard.test"
+          git config --global user.name "VibeGuard CI"
+          git config --global init.defaultBranch master
+
+      - run: pnpm test
+
+  package:
+    name: Verify the published package installs and runs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # Unit tests cannot see packaging faults — a missing `files` entry or a bad
+      # bin path only shows up once the tarball is installed somewhere else.
+      - name: Pack and install into a clean project
+        run: |
+          npm pack
+          mkdir -p /tmp/consumer && cd /tmp/consumer
+          npm init -y
+          git init -q . && git config user.email ci@vibeguard.test && git config user.name CI
+          printf 'node_modules/\n' > .gitignore
+          npm install --no-audit --no-fund "$GITHUB_WORKSPACE"/vibeguard-*.tgz
+          npx vibeguard --version
+          npx vibeguard init
+
+      - name: A staged secret must block, clean code must pass
+        run: |
+          cd /tmp/consumer
+          printf 'const k = "AKIAABCDEFGHIJKLMNOP";\n' > leak.js
+          git add leak.js
+          if npx vibeguard scan --no-deps < /dev/null; then
+            echo "::error::vibeguard exited 0 on a staged AWS key"
+            exit 1
+          fi
+          git rm -q --cached leak.js && rm leak.js
+          printf 'const total = price * quantity;\n' > calc.js
+          git add calc.js
+          npx vibeguard scan --no-deps < /dev/null

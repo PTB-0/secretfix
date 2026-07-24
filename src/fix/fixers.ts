@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { unstageFile } from '../git.js';
 import type { FixDescriptor } from '../types.js';
 
 function escapeRegExp(value: string): string {
@@ -123,6 +124,19 @@ export function applyFix(fix: FixDescriptor, cwd: string): string[] {
       lines[fix.line - 1] = fix.replacement;
       writeFileSync(filePath, lines.join('\n'));
       return [fix.file];
+    }
+    case 'unstage-file': {
+      unstageFile(fix.file, cwd);
+
+      const gitignorePath = join(cwd, '.gitignore');
+      const alreadyIgnored = readOrEmpty(gitignorePath)
+        .split('\n')
+        .some((entry) => entry.trim() === fix.file);
+      if (alreadyIgnored) return [];
+
+      appendLine(gitignorePath, fix.file);
+      // Never return the unstaged path itself — re-staging it would undo the fix.
+      return ['.gitignore'];
     }
   }
 }

@@ -57,6 +57,66 @@ describe('secretsScanner', () => {
     });
   });
 
+  it.each([
+    ['GitHub Token', 'const t = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";', 'GITHUB_TOKEN'],
+    ['Slack Token', 'const s = "xoxb-123456789012-abcdefghijklmnopqrstuvwx";', 'SLACK_TOKEN'],
+    ['Google API Key', 'const k = "AIzaSyD-1234567890abcdefghijklmnopqrstu";', 'GOOGLE_API_KEY'],
+    ['Anthropic API Key', 'const k = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234";', 'ANTHROPIC_API_KEY'],
+    ['Private Key Block', '-----BEGIN RSA PRIVATE KEY-----', 'PRIVATE_KEY_BLOCK']
+  ])('identifies %s by name rather than as a generic high-entropy string', async (label, content, envVar) => {
+    const [finding] = await secretsScanner.scan([{ path: 'a.js', content }]);
+
+    expect(finding.severity).toBe('critical');
+    expect(finding.message).toContain(label);
+    expect(finding.fix).toMatchObject({ envVarName: envVar });
+  });
+
+  it('flags a password embedded in a connection string', async () => {
+    const [finding] = await secretsScanner.scan([
+      { path: 'db.js', content: 'const url = "postgres://admin:s3cretpw@10.0.0.1:5432/app";' }
+    ]);
+
+    expect(finding.message).toContain('Credentials in connection string');
+    expect(finding.fix).toMatchObject({ secretValue: 's3cretpw' });
+  });
+
+  it('does not flag a connection string without a password', async () => {
+    const findings = await secretsScanner.scan([{ path: 'db.js', content: 'const url = "https://example.com/api";' }]);
+    expect(findings).toHaveLength(0);
+  });
+
+  it.each([
+    ['.env', 'environment file'],
+    ['.env.production', 'environment file'],
+    ['config/id_rsa', 'SSH private key'],
+    ['certs/server.pem', 'private key / keystore'],
+    ['credentials.json', 'cloud credentials file'],
+    ['.npmrc', 'npm credentials file']
+  ])('flags %s as a file that should never be staged', async (path, label) => {
+    const findings = await secretsScanner.scan([{ path, content: 'anything at all\n' }]);
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe('critical');
+    expect(findings[0].message).toContain(label);
+    expect(findings[0].scope).toBe('file');
+    expect(findings[0].fix).toEqual({ kind: 'unstage-file', file: path });
+  });
+
+  it.each(['.env.example', '.env.sample', 'config.template'])(
+    'does not flag %s, which is documentation',
+    async (path) => {
+      const findings = await secretsScanner.scan([{ path, content: 'DATABASE_URL=\n' }]);
+      expect(findings).toHaveLength(0);
+    }
+  );
+
+  it('reports a sensitive file once, without also scanning its contents', async () => {
+    const findings = await secretsScanner.scan([
+      { path: '.env', content: 'AWS=AKIAABCDEFGHIJKLMNOP\nSTRIPE=sk_live_abcdefghijklmnopqrstuvwx\n' }
+    ]);
+    expect(findings).toHaveLength(1);
+  });
+
   it('reports the correct line number for a secret further down the file', async () => {
     const findings = await secretsScanner.scan([
       { path: 'config.js', content: '// header\n\nconst key = "AKIAABCDEFGHIJKLMNOP";\n' }

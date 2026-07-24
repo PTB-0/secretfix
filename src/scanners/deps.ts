@@ -69,6 +69,27 @@ function parsePackageJson(content: string): { name: string; version: string }[] 
   return Object.entries(deps).map(([name, version]) => ({ name, version: version.replace(/^[\^~]/, '') }));
 }
 
+/**
+ * npm audit speaks its own severity dialect — "moderate" and "info" are not
+ * Severity values, and passing them straight through produced findings that no
+ * severity comparison could rank.
+ */
+function normalizeSeverity(raw: string | undefined): Finding['severity'] {
+  switch (raw) {
+    case 'critical':
+    case 'high':
+    case 'low':
+      return raw;
+    case 'moderate':
+    case 'medium':
+      return 'medium';
+    case 'info':
+      return 'low';
+    default:
+      return 'medium';
+  }
+}
+
 function findLineOf(content: string, packageName: string): number {
   const lines = content.split('\n');
   const index = lines.findIndex((line) => line.includes(`"${packageName}"`));
@@ -97,7 +118,7 @@ export function createDepsScanner(deps: DepsScannerDeps): Scanner {
         seen.add(name);
         findings.push({
           scanner: 'deps',
-          severity: (advisory.severity as Finding['severity']) ?? 'medium',
+          severity: normalizeSeverity(advisory.severity),
           file: 'package.json',
           line: findLineOf(packageJsonFile.content, name),
           message: `Dependency "${name}" has a known ${advisory.severity} severity vulnerability (affected range ${advisory.range}).`,

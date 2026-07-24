@@ -126,6 +126,105 @@ describe('scanCommand', () => {
     expect(exitCode).toBe(0);
   });
 
+  it('ignores a pre-existing problem in a file this commit merely touched', async () => {
+    writeFileSync(join(repoDir, 'legacy.js'), 'const a = 1;\nconst old = eval(x);\n');
+    git(['add', 'legacy.js']);
+    git(['commit', '-m', 'legacy']);
+
+    writeFileSync(join(repoDir, 'legacy.js'), 'const a = 1;\nconst old = eval(x);\nconst added = 42;\n');
+    git(['add', 'legacy.js']);
+
+    const exitCode = await scanCommand({ cwd: repoDir, prompt: async () => 'skip' as const, noDeps: true });
+
+    expect(exitCode).toBe(0);
+  });
+
+  it('still blocks when this commit adds the problem line itself', async () => {
+    writeFileSync(join(repoDir, 'legacy.js'), 'const a = 1;\n');
+    git(['add', 'legacy.js']);
+    git(['commit', '-m', 'legacy']);
+
+    writeFileSync(join(repoDir, 'legacy.js'), 'const a = 1;\nconst key = "AKIAABCDEFGHIJKLMNOP";\n');
+    git(['add', 'legacy.js']);
+
+    const exitCode = await scanCommand({ cwd: repoDir, prompt: async () => 'skip' as const, noDeps: true });
+
+    expect(exitCode).toBe(1);
+  });
+
+  it('flags the pre-existing problem again under --whole-file', async () => {
+    writeFileSync(join(repoDir, 'legacy.js'), 'const a = 1;\nconst key = "AKIAABCDEFGHIJKLMNOP";\n');
+    git(['add', 'legacy.js']);
+    git(['commit', '-m', 'legacy']);
+
+    writeFileSync(join(repoDir, 'legacy.js'), 'const a = 1;\nconst key = "AKIAABCDEFGHIJKLMNOP";\nconst added = 42;\n');
+    git(['add', 'legacy.js']);
+
+    const exitCode = await scanCommand({
+      cwd: repoDir,
+      prompt: async () => 'skip' as const,
+      noDeps: true,
+      wholeFile: true
+    });
+
+    expect(exitCode).toBe(1);
+  });
+
+  it('does not block on a medium-severity finding by default', async () => {
+    writeFileSync(join(repoDir, 'token.js'), 'const id = Math.random().toString(36);\n');
+    git(['add', 'token.js']);
+
+    const exitCode = await scanCommand({ cwd: repoDir, prompt: async () => 'skip' as const, noDeps: true });
+
+    expect(exitCode).toBe(0);
+  });
+
+  it('blocks on a medium-severity finding when failOn is lowered', async () => {
+    writeFileSync(join(repoDir, 'token.js'), 'const id = Math.random().toString(36);\n');
+    git(['add', 'token.js']);
+
+    const exitCode = await scanCommand({
+      cwd: repoDir,
+      prompt: async () => 'skip' as const,
+      noDeps: true,
+      failOn: 'medium'
+    });
+
+    expect(exitCode).toBe(1);
+  });
+
+  it('blocks when a .env file is staged, whatever is inside it', async () => {
+    writeFileSync(join(repoDir, '.env'), 'DATABASE_URL=postgres://u:p@h/db\n');
+    git(['add', '.env']);
+
+    const exitCode = await scanCommand({ cwd: repoDir, prompt: async () => 'skip' as const, noDeps: true });
+
+    expect(exitCode).toBe(1);
+  });
+
+  it('unstages a staged .env when the fix is accepted, keeping it on disk', async () => {
+    writeFileSync(join(repoDir, '.env'), 'DATABASE_URL=postgres://u:p@h/db\n');
+    git(['add', '.env']);
+
+    const exitCode = await scanCommand({ cwd: repoDir, prompt: async () => 'y' as const, noDeps: true });
+
+    expect(exitCode).toBe(0);
+    expect(execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: repoDir, encoding: 'utf8' })).not.toContain(
+      '.env'
+    );
+    expect(readFileSync(join(repoDir, '.env'), 'utf8')).toBe('DATABASE_URL=postgres://u:p@h/db\n');
+    expect(readFileSync(join(repoDir, '.gitignore'), 'utf8')).toContain('.env');
+  });
+
+  it('does not flag .env.example, which is meant to be committed', async () => {
+    writeFileSync(join(repoDir, '.env.example'), 'DATABASE_URL=\n');
+    git(['add', '.env.example']);
+
+    const exitCode = await scanCommand({ cwd: repoDir, prompt: async () => 'skip' as const, noDeps: true });
+
+    expect(exitCode).toBe(0);
+  });
+
   it('returns 0 when nothing is staged', async () => {
     const exitCode = await scanCommand({ cwd: repoDir, prompt: async () => 'skip' as const, noDeps: true });
     expect(exitCode).toBe(0);

@@ -37,14 +37,28 @@ Requires Node.js 18 or newer.
 
 | Scanner | Finds |
 |---|---|
-| `secrets` | AWS access keys, Stripe live keys, OpenAI keys, assigned `apiKey`/`token`/`password` literals, and high-entropy strings that look like credentials |
-| `owasp` | `eval()` / `new Function()`, SQL built by string concatenation, hardcoded password literals, `Math.random()` used where a CSPRNG belongs |
+| `secrets` | AWS, Stripe, GitHub, Slack, Google, Anthropic and OpenAI keys; private key blocks; passwords inside connection strings; assigned `apiKey`/`token`/`password` literals; high-entropy strings that look like credentials; and files that must never be staged at all (`.env`, `id_rsa`, `*.pem`, `credentials.json`, `.npmrc`) |
+| `owasp` | `eval()` / `new Function()`, SQL built by string concatenation, shell commands built by string concatenation, `innerHTML` / `dangerouslySetInnerHTML`, disabled TLS verification, MD5/SHA-1 password hashing, hardcoded password literals, `Math.random()` used where a CSPRNG belongs |
 | `deps` | Vulnerable npm dependencies, via `npm audit` cross-referenced with [OSV.dev](https://osv.dev) |
 
+**Only the lines your commit adds are judged.** Install VibeGuard into a codebase
+that already has an `eval()` in it and you can still commit — you only answer for
+what you are introducing. Pass `--whole-file` (or set `"scanMode": "whole-file"`)
+to audit entire staged files instead. Two things are always reported regardless:
+a sensitive file being staged, and a vulnerable dependency, because neither is
+about a line you typed.
+
 Only **staged** content is scanned — what is actually about to be committed, not
-your working tree. Binary blobs, files over 1 MB, lockfiles and minified bundles
-are skipped; they are all high-entropy by construction and produce nothing but
-false positives.
+your working tree. Binary blobs, files over 1 MB, `node_modules/`, lockfiles and
+minified bundles are skipped; they are all high-entropy by construction and
+produce nothing but false positives.
+
+### What blocks, and what only warns
+
+By default **critical and high** findings block the commit; **medium and low** are
+printed as notes and let it through. Blocking on every `Math.random()` teaches
+people to reach for `--no-verify`, which is worse than not gating at all. Change
+the line with `"failOn": "medium"` or `--fail-on medium`.
 
 ## Fixes
 
@@ -56,6 +70,9 @@ Answer `y` and VibeGuard applies the fix and re-stages the file:
   first. `.env` itself is never staged.
 - **Vulnerable dependency** — the version range in `package.json` is bumped to the
   first patched release. Run your installer afterwards to update the lockfile.
+- **Staged secret file** — `.env` and friends are removed from the commit with
+  `git restore --staged` and added to `.gitignore`. The file itself stays exactly
+  where it is on your disk; only the commit is changed.
 - **Unsafe pattern** — no machine can rewrite these safely, so the line is
   annotated with `// vibeguard-ignore-next-line — reviewed: <rule>`, recording
   that you looked at it. The line itself is left exactly as you wrote it.
@@ -72,6 +89,8 @@ not actually resolve the problem still blocks the commit.
   "secrets": true,
   "owasp": true,
   "deps": true,
+  "scanMode": "added-lines",
+  "failOn": "high",
   "ignoreLines": {
     "src/fixtures.ts": [12, 13]
   },
@@ -80,6 +99,10 @@ not actually resolve the problem still blocks the commit.
 ```
 
 - `secrets` / `owasp` / `deps` — turn a scanner off entirely.
+- `scanMode` — `"added-lines"` (default) judges only what the commit introduces;
+  `"whole-file"` judges every line of every staged file.
+- `failOn` — lowest severity that blocks: `"critical"`, `"high"` (default),
+  `"medium"` or `"low"`.
 - `ignoreLines` — silence specific lines of specific files.
 - `excludeFiles` — never scan these. Matches an exact path, a bare file name, a
   path suffix (`.generated.ts`) or a directory prefix (`test/fixtures/`). Entries
@@ -97,9 +120,11 @@ const other = "AKIAIOSFODNN7EXAMPLE"; // vibeguard-ignore
 Flags override the config file for one run:
 
 ```bash
-vibeguard scan --no-deps      # skip the dependency scan (it can hit the network)
+vibeguard scan --no-deps            # skip the dependency scan (it can hit the network)
 vibeguard scan --no-owasp
 vibeguard scan --no-secrets
+vibeguard scan --whole-file         # audit whole files, not just added lines
+vibeguard scan --fail-on medium     # let medium findings block too
 ```
 
 ## Exit codes

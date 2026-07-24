@@ -51,6 +51,53 @@ export function getStagedFiles(cwd: string): StagedFile[] {
   return files;
 }
 
+/**
+ * The 1-based line numbers each staged file actually *adds*, parsed from a
+ * zero-context diff. Scanning whole files instead means any pre-existing problem
+ * in a file you merely touched blocks the commit — which gets the tool uninstalled.
+ */
+export function getStagedAddedLines(cwd: string): Map<string, Set<number>> {
+  // core.quotePath=false keeps non-ASCII paths from arriving octal-escaped.
+  const output = git(['-c', 'core.quotePath=false', 'diff', '--cached', '-U0', '--diff-filter=ACM'], cwd);
+  const added = new Map<string, Set<number>>();
+  let current: Set<number> | undefined;
+
+  for (const line of output.split('\n')) {
+    if (line.startsWith('+++ ')) {
+      const target = line.slice(4).trimEnd();
+      if (target === '/dev/null') {
+        current = undefined;
+        continue;
+      }
+      current = new Set<number>();
+      added.set(target.startsWith('b/') ? target.slice(2) : target, current);
+      continue;
+    }
+
+    if (current && line.startsWith('@@')) {
+      const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+      if (!hunk) continue;
+      const start = Number(hunk[1]);
+      const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      for (let offset = 0; offset < count; offset += 1) {
+        current.add(start + offset);
+      }
+    }
+  }
+
+  return added;
+}
+
 export function restageFile(path: string, cwd: string): void {
   git(['add', '--', path], cwd);
+}
+
+/** Removes a path from the index, leaving the working-tree copy untouched. */
+export function unstageFile(path: string, cwd: string): void {
+  try {
+    // Fails when the path is not in HEAD (a newly added file), which needs --cached rm.
+    git(['restore', '--staged', '--', path], cwd);
+  } catch {
+    git(['rm', '--cached', '--force', '--quiet', '--', path], cwd);
+  }
 }

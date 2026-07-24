@@ -12,7 +12,18 @@ interface SecretPattern {
 const KNOWN_PATTERNS: SecretPattern[] = [
   { name: 'AWS Access Key', regex: /AKIA[0-9A-Z]{16}/g },
   { name: 'Stripe Live Key', regex: /sk_live_[0-9a-zA-Z]{24,}/g },
-  { name: 'OpenAI API Key', regex: /sk-[a-zA-Z0-9]{32,}/g },
+  { name: 'GitHub Token', regex: /gh[pousr]_[A-Za-z0-9]{36,}/g },
+  { name: 'Slack Token', regex: /xox[baprs]-[A-Za-z0-9-]{10,}/g },
+  { name: 'Google API Key', regex: /AIza[0-9A-Za-z_-]{35}/g },
+  { name: 'Anthropic API Key', regex: /sk-ant-[A-Za-z0-9-]{20,}/g },
+  { name: 'OpenAI API Key', regex: /sk-(?:proj-)?[a-zA-Z0-9]{32,}/g },
+  { name: 'Private Key Block', regex: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/g },
+  {
+    // A password embedded in a connection URI: postgres://user:pass@host/db
+    name: 'Credentials in connection string',
+    regex: /[a-z][a-z0-9+.-]*:\/\/[^:@/\s]+:([^@/\s]{4,})@[^\s"'`]+/gi,
+    valueGroup: 1
+  },
   {
     name: 'Generic assigned secret',
     regex: /((?:api[_-]?key|secret|token|password)\w*)\s*[:=]\s*["']([^"'\s]{12,})["']/gi,
@@ -21,10 +32,37 @@ const KNOWN_PATTERNS: SecretPattern[] = [
   }
 ];
 
-/** `apiKey` -> `API_KEY`, `AWS Access Key` -> `AWS_ACCESS_KEY`. */
+/**
+ * Files that are a leak simply by being staged, whatever is inside them. Content
+ * scanning misses these: a .env is `KEY=value` with no quotes, which matches no
+ * assignment pattern and often not the entropy check either.
+ */
+const SENSITIVE_FILES: { pattern: RegExp; label: string }[] = [
+  { pattern: /(^|\/)\.env(\.[\w-]+)?$/, label: 'environment file' },
+  { pattern: /(^|\/)id_(rsa|dsa|ecdsa|ed25519)$/, label: 'SSH private key' },
+  { pattern: /\.(pem|pfx|p12|key|keystore|jks)$/i, label: 'private key / keystore' },
+  { pattern: /(^|\/)(credentials|service-account.*|gcp-key)\.json$/i, label: 'cloud credentials file' },
+  { pattern: /(^|\/)\.npmrc$/, label: 'npm credentials file' },
+  { pattern: /(^|\/)\.pypirc$/, label: 'PyPI credentials file' },
+  { pattern: /(^|\/)\.aws\/credentials$/, label: 'AWS credentials file' }
+];
+
+function sensitiveFileLabel(path: string): string | undefined {
+  // .env.example and friends are documentation, meant to be committed.
+  if (/\.(example|sample|template|dist)$/i.test(path)) return undefined;
+  return SENSITIVE_FILES.find((entry) => entry.pattern.test(path))?.label;
+}
+
+/**
+ * `apiKey` -> `API_KEY`, `AWS Access Key` -> `AWS_ACCESS_KEY`.
+ *
+ * The camelCase split only applies to identifiers. Pattern labels are prose and
+ * already word-separated, and splitting them mangles internal capitals —
+ * "GitHub Token" would become GIT_HUB_TOKEN.
+ */
 function toEnvVarName(raw: string): string {
-  return raw
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+  const separated = raw.includes(' ') ? raw : raw.replace(/([a-z0-9])([A-Z])/g, '$1_$2');
+  return separated
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
@@ -52,6 +90,20 @@ export const secretsScanner: Scanner = {
     const findings: Finding[] = [];
 
     for (const file of stagedFiles) {
+      const sensitive = sensitiveFileLabel(file.path);
+      if (sensitive) {
+        findings.push({
+          scanner: 'secrets',
+          severity: 'critical',
+          file: file.path,
+          line: 1,
+          message: `${file.path} is a ${sensitive} and should never be committed. VibeGuard can remove it from this commit and add it to .gitignore — the file stays on your disk.`,
+          fix: { kind: 'unstage-file', file: file.path },
+          scope: 'file'
+        });
+        continue;
+      }
+
       const lines = file.content.split('\n');
       lines.forEach((line, index) => {
         for (const pattern of KNOWN_PATTERNS) {
