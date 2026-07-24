@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import promptsLib from 'prompts';
 import { scanCommand } from './commands/scan.js';
+import { initCommand } from './commands/init.js';
 import type { Finding } from './types.js';
 import type { PromptFn } from './fix/interactive.js';
 
@@ -55,7 +56,10 @@ export function buildProgram(): Command {
 
   program
     .command('init')
-    .description('Install the VibeGuard pre-commit hook in this repository');
+    .description('Install the VibeGuard pre-commit hook in this repository')
+    .action(() => {
+      initCommand(process.cwd());
+    });
 
   return program;
 }
