@@ -16,6 +16,14 @@
   ],
   "license": "MIT",
   "author": "ege <ege@projecthebest.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PTB-0/vibeguard.git"
+  },
+  "homepage": "https://github.com/PTB-0/vibeguard#readme",
+  "bugs": {
+    "url": "https://github.com/PTB-0/vibeguard/issues"
+  },
   "type": "module",
   "bin": {
     "vibeguard": "./bin/vibeguard.js"
