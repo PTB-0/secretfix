@@ -6,13 +6,37 @@ export interface VibeGuardConfig {
   owasp: boolean;
   deps: boolean;
   ignoreLines: Record<string, number[]>;
+  /** Paths never scanned. User entries are added to the built-in list, not replacing it. */
+  excludeFiles: string[];
 }
+
+/**
+ * Generated files whose contents are, by construction, indistinguishable from
+ * secrets (lockfile integrity hashes, minified bundles). Scanning them means a
+ * false positive on essentially every commit that touches them.
+ */
+const DEFAULT_EXCLUDES: string[] = [
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+  'bun.lockb',
+  'Cargo.lock',
+  'Gemfile.lock',
+  'composer.lock',
+  'poetry.lock',
+  'go.sum',
+  '.min.js',
+  '.min.css',
+  '.map',
+  '.snap'
+];
 
 const DEFAULT_CONFIG: VibeGuardConfig = {
   secrets: true,
   owasp: true,
   deps: true,
-  ignoreLines: {}
+  ignoreLines: {},
+  excludeFiles: DEFAULT_EXCLUDES
 };
 
 /**
@@ -59,12 +83,28 @@ export function loadConfig(cwd: string): VibeGuardConfig {
   }
 
   const parsed = raw as Record<string, unknown>;
+  const userExcludes = Array.isArray(parsed.excludeFiles)
+    ? parsed.excludeFiles.filter((entry): entry is string => typeof entry === 'string')
+    : [];
+
   return {
     secrets: readBoolean(parsed.secrets, DEFAULT_CONFIG.secrets),
     owasp: readBoolean(parsed.owasp, DEFAULT_CONFIG.owasp),
     deps: readBoolean(parsed.deps, DEFAULT_CONFIG.deps),
-    ignoreLines: readIgnoreLines(parsed.ignoreLines)
+    ignoreLines: readIgnoreLines(parsed.ignoreLines),
+    excludeFiles: [...DEFAULT_EXCLUDES, ...userExcludes]
   };
+}
+
+/**
+ * Matches a repo-relative path against an exclude entry: exact path, bare file
+ * name, path suffix (`.min.js`) or directory prefix (`test/fixtures/`).
+ */
+export function isExcluded(config: VibeGuardConfig, path: string): boolean {
+  const name = path.split('/').pop() ?? path;
+  return config.excludeFiles.some(
+    (entry) => path === entry || name === entry || path.endsWith(entry) || (entry.endsWith('/') && path.startsWith(entry))
+  );
 }
 
 export interface CliOverrides {

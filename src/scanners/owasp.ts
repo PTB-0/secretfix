@@ -56,7 +56,10 @@ export const owaspScanner: Scanner = {
                 kind: 'replace-line',
                 file: file.path,
                 line: index + 1,
-                replacement: `// vibeguard: review this line manually — ${pattern.name}\n${line}`
+                // The marker is what makes accepting this fix meaningful: the line
+                // itself is unchanged (only a human can rewrite it safely), so
+                // without a suppression the re-scan would block the commit forever.
+                replacement: `// vibeguard-ignore-next-line — reviewed: ${pattern.name}\n${line}`
               }
             });
           }

@@ -53,7 +53,12 @@ function readLines(path: string, file: string, line: number): string[] {
   return lines;
 }
 
-export function applyFix(fix: FixDescriptor, cwd: string): void {
+/**
+ * Applies a fix and returns the repo-relative paths that should be re-staged.
+ * `.env` is deliberately never returned — it holds the secret and must stay out
+ * of the commit.
+ */
+export function applyFix(fix: FixDescriptor, cwd: string): string[] {
   switch (fix.kind) {
     case 'move-to-env': {
       const filePath = join(cwd, fix.file);
@@ -76,13 +81,15 @@ export function applyFix(fix: FixDescriptor, cwd: string): void {
 
       appendLine(envPath, `${envVarName}=${formatEnvValue(fix.secretValue)}`);
 
+      const restage = [fix.file];
       const gitignorePath = join(cwd, '.gitignore');
       if (!readOrEmpty(gitignorePath).split('\n').some((entry) => entry.trim() === '.env')) {
         appendLine(gitignorePath, '.env');
+        restage.push('.gitignore');
       }
 
       writeFileSync(filePath, lines.join('\n'));
-      break;
+      return restage;
     }
     case 'bump-dependency': {
       const filePath = join(cwd, fix.packageJsonPath);
@@ -108,14 +115,14 @@ export function applyFix(fix: FixDescriptor, cwd: string): void {
       }
 
       writeFileSync(filePath, `${JSON.stringify(pkg, null, 2)}\n`);
-      break;
+      return [fix.packageJsonPath];
     }
     case 'replace-line': {
       const filePath = join(cwd, fix.file);
       const lines = readLines(filePath, fix.file, fix.line);
       lines[fix.line - 1] = fix.replacement;
       writeFileSync(filePath, lines.join('\n'));
-      break;
+      return [fix.file];
     }
   }
 }

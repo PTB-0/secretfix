@@ -49,4 +49,30 @@ describe('git helpers', () => {
     const [file] = getStagedFiles(repoDir);
     expect(file.content).toBe('v2');
   });
+
+  it('skips binary blobs but still returns text files staged alongside them', () => {
+    writeFileSync(join(repoDir, 'logo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02, 0x03]));
+    writeFileSync(join(repoDir, 'a.txt'), 'hello');
+    git(['add', 'logo.png', 'a.txt']);
+
+    const paths = getStagedFiles(repoDir).map((f) => f.path);
+    expect(paths).toEqual(['a.txt']);
+    expect(getStagedFilePaths(repoDir)).toContain('logo.png');
+  });
+
+  it('skips files larger than the scan size cap', () => {
+    writeFileSync(join(repoDir, 'big.txt'), 'x'.repeat(1_000_001));
+    writeFileSync(join(repoDir, 'a.txt'), 'hello');
+    git(['add', 'big.txt', 'a.txt']);
+
+    expect(getStagedFiles(repoDir).map((f) => f.path)).toEqual(['a.txt']);
+  });
+
+  it('reads a path containing spaces', () => {
+    writeFileSync(join(repoDir, 'my file.txt'), 'spaced');
+    git(['add', 'my file.txt']);
+
+    const [file] = getStagedFiles(repoDir);
+    expect(file.content).toBe('spaced');
+  });
 });

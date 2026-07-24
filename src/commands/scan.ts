@@ -1,0 +1,93 @@
+import { getStagedFiles } from '../git.js';
+import { loadConfig, applyCliOverrides, isIgnored, isExcluded, hasIgnoreMarker, type CliOverrides, type VibeGuardConfig } from '../config.js';
+import { runScanners } from '../orchestrator.js';
+import { secretsScanner } from '../scanners/secrets.js';
+import { owaspScanner } from '../scanners/owasp.js';
+import { depsScanner } from '../scanners/deps.js';
+import { resolveFindings, type PromptFn } from '../fix/interactive.js';
+import type { Finding, Scanner, StagedFile } from '../types.js';
+
+export interface ScanOptions extends CliOverrides {
+  cwd?: string;
+  prompt: PromptFn;
+}
+
+const SEVERITY_ORDER: Record<Finding['severity'], number> = { critical: 0, high: 1, medium: 2, low: 3 };
+
+function selectScanners(config: VibeGuardConfig): Scanner[] {
+  const scanners: Scanner[] = [];
+  if (config.secrets) scanners.push(secretsScanner);
+  if (config.owasp) scanners.push(owaspScanner);
+  if (config.deps) scanners.push(depsScanner);
+  return scanners;
+}
+
+/** Drops findings the user has silenced, via config or an inline marker. */
+function actionableFindings(findings: Finding[], config: VibeGuardConfig, files: StagedFile[]): Finding[] {
+  const contentByPath = new Map(files.map((file) => [file.path, file.content]));
+
+  return findings
+    .filter((finding) => {
+      if (isIgnored(config, finding.file, finding.line)) return false;
+      const content = contentByPath.get(finding.file);
+      return !(content !== undefined && hasIgnoreMarker(content, finding.line));
+    })
+    .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || a.file.localeCompare(b.file) || a.line - b.line);
+}
+
+async function collectFindings(
+  scanners: Scanner[],
+  config: VibeGuardConfig,
+  cwd: string
+): Promise<{ findings: Finding[]; warnings: string[] }> {
+  const files = getStagedFiles(cwd).filter((file) => !isExcluded(config, file.path));
+  const { findings, warnings } = await runScanners(scanners, files);
+  return { findings: actionableFindings(findings, config, files), warnings };
+}
+
+export async function scanCommand(options: ScanOptions): Promise<number> {
+  const cwd = options.cwd ?? process.cwd();
+  const config = applyCliOverrides(loadConfig(cwd), options);
+  const scanners = selectScanners(config);
+
+  const { findings, warnings } = await collectFindings(scanners, config, cwd);
+
+  for (const warning of warnings) {
+    console.warn(`vibeguard: warning — ${warning}`);
+  }
+
+  if (findings.length === 0) {
+    console.log('vibeguard: no issues found.');
+    return 0;
+  }
+
+  console.log(`\nvibeguard: ${findings.length} issue(s) found in your staged changes.\n`);
+
+  const { resolved, unresolved } = await resolveFindings(findings, cwd, options.prompt);
+
+  if (unresolved.length > 0) {
+    console.error(
+      `\nvibeguard: ${unresolved.length} unresolved issue(s). Commit blocked.\n` +
+        'Fix them, or silence a line with "// vibeguard-ignore-next-line", or run "git commit --no-verify" to bypass.'
+    );
+    return 1;
+  }
+
+  // The spec requires re-scanning the updated index before letting the commit
+  // through, so a fix that did not actually remove the problem still blocks.
+  if (resolved.length > 0) {
+    const verification = await collectFindings(scanners, config, cwd);
+    if (verification.findings.length > 0) {
+      console.error(
+        `\nvibeguard: ${verification.findings.length} issue(s) still present after fixing. Commit blocked.`
+      );
+      for (const finding of verification.findings) {
+        console.error(`  ${finding.file}:${finding.line} — ${finding.message}`);
+      }
+      return 1;
+    }
+  }
+
+  console.log('\nvibeguard: all issues resolved.');
+  return 0;
+}
