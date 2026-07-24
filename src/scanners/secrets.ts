@@ -97,7 +97,7 @@ export const secretsScanner: Scanner = {
           severity: 'critical',
           file: file.path,
           line: 1,
-          message: `${file.path} is a ${sensitive} and should never be committed. VibeGuard can remove it from this commit and add it to .gitignore — the file stays on your disk.`,
+          message: `${file.path} is a ${sensitive} and should never be committed. SafeShip can remove it from this commit and add it to .gitignore — the file stays on your disk.`,
           fix: { kind: 'unstage-file', file: file.path },
           scope: 'file'
         });

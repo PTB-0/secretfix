@@ -33,8 +33,8 @@ jobs:
       # The suite drives real git repositories, so git needs an identity.
       - name: Configure git identity
         run: |
-          git config --global user.email "ci@vibeguard.test"
-          git config --global user.name "VibeGuard CI"
+          git config --global user.email "ci@safeship.test"
+          git config --global user.name "SafeShip CI"
           git config --global init.defaultBranch master
 
       - run: pnpm test
@@ -64,22 +64,22 @@ jobs:
           npm pack
           mkdir -p /tmp/consumer && cd /tmp/consumer
           npm init -y
-          git init -q . && git config user.email ci@vibeguard.test && git config user.name CI
+          git init -q . && git config user.email ci@safeship.test && git config user.name CI
           printf 'node_modules/\n' > .gitignore
-          npm install --no-audit --no-fund "$GITHUB_WORKSPACE"/vibeguard-*.tgz
-          npx vibeguard --version
-          npx vibeguard init
+          npm install --no-audit --no-fund "$GITHUB_WORKSPACE"/safeship-*.tgz
+          npx safeship --version
+          npx safeship init
 
       - name: A staged secret must block, clean code must pass
         run: |
           cd /tmp/consumer
           printf 'const k = "AKIAABCDEFGHIJKLMNOP";\n' > leak.js
           git add leak.js
-          if npx vibeguard scan --no-deps < /dev/null; then
-            echo "::error::vibeguard exited 0 on a staged AWS key"
+          if npx safeship scan --no-deps < /dev/null; then
+            echo "::error::safeship exited 0 on a staged AWS key"
             exit 1
           fi
           git rm -q --cached leak.js && rm leak.js
           printf 'const total = price * quantity;\n' > calc.js
           git add calc.js
-          npx vibeguard scan --no-deps < /dev/null
+          npx safeship scan --no-deps < /dev/null

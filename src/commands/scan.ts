@@ -8,7 +8,7 @@ import {
   blocksCommit,
   compareSeverity,
   type CliOverrides,
-  type VibeGuardConfig
+  type SafeShipConfig
 } from '../config.js';
 import { runScanners } from '../orchestrator.js';
 import { secretsScanner } from '../scanners/secrets.js';
@@ -29,7 +29,7 @@ export interface ScanOptions extends CliOverrides {
  */
 const DIFF_SCOPED_SCANNERS: ReadonlySet<Finding['scanner']> = new Set<Finding['scanner']>(['secrets', 'owasp']);
 
-function selectScanners(config: VibeGuardConfig): Scanner[] {
+function selectScanners(config: SafeShipConfig): Scanner[] {
   const scanners: Scanner[] = [];
   if (config.secrets) scanners.push(secretsScanner);
   if (config.owasp) scanners.push(owaspScanner);
@@ -40,7 +40,7 @@ function selectScanners(config: VibeGuardConfig): Scanner[] {
 /** Drops findings the user has silenced, via config or an inline marker. */
 function actionableFindings(
   findings: Finding[],
-  config: VibeGuardConfig,
+  config: SafeShipConfig,
   files: StagedFile[],
   addedLines: Map<string, Set<number>> | undefined
 ): Finding[] {
@@ -63,7 +63,7 @@ function actionableFindings(
 
 async function collectFindings(
   scanners: Scanner[],
-  config: VibeGuardConfig,
+  config: SafeShipConfig,
   cwd: string
 ): Promise<{ findings: Finding[]; warnings: string[] }> {
   const files = getStagedFiles(cwd).filter((file) => !isExcluded(config, file.path));
@@ -74,7 +74,7 @@ async function collectFindings(
 
 function reportAdvisory(findings: Finding[]): void {
   if (findings.length === 0) return;
-  console.log(`\nvibeguard: ${findings.length} lower-severity note(s) — not blocking this commit:`);
+  console.log(`\nsafeship: ${findings.length} lower-severity note(s) — not blocking this commit:`);
   for (const finding of findings) {
     console.log(`  [${finding.severity}] ${finding.file}:${finding.line} — ${finding.message}`);
   }
@@ -88,26 +88,26 @@ export async function scanCommand(options: ScanOptions): Promise<number> {
   const { findings, warnings } = await collectFindings(scanners, config, cwd);
 
   for (const warning of warnings) {
-    console.warn(`vibeguard: warning — ${warning}`);
+    console.warn(`safeship: warning — ${warning}`);
   }
 
   const blocking = findings.filter((finding) => blocksCommit(config, finding.severity));
   const advisory = findings.filter((finding) => !blocksCommit(config, finding.severity));
 
   if (blocking.length === 0) {
-    console.log('vibeguard: no blocking issues found.');
+    console.log('safeship: no blocking issues found.');
     reportAdvisory(advisory);
     return 0;
   }
 
-  console.log(`\nvibeguard: ${blocking.length} issue(s) found in your staged changes.\n`);
+  console.log(`\nsafeship: ${blocking.length} issue(s) found in your staged changes.\n`);
 
   const { resolved, unresolved } = await resolveFindings(blocking, cwd, options.prompt);
 
   if (unresolved.length > 0) {
     console.error(
-      `\nvibeguard: ${unresolved.length} unresolved issue(s). Commit blocked.\n` +
-        'Fix them, or silence a line with "// vibeguard-ignore-next-line", or run "git commit --no-verify" to bypass.'
+      `\nsafeship: ${unresolved.length} unresolved issue(s). Commit blocked.\n` +
+        'Fix them, or silence a line with "// safeship-ignore-next-line", or run "git commit --no-verify" to bypass.'
     );
     return 1;
   }
@@ -118,7 +118,7 @@ export async function scanCommand(options: ScanOptions): Promise<number> {
     const verification = await collectFindings(scanners, config, cwd);
     const stillBlocking = verification.findings.filter((finding) => blocksCommit(config, finding.severity));
     if (stillBlocking.length > 0) {
-      console.error(`\nvibeguard: ${stillBlocking.length} issue(s) still present after fixing. Commit blocked.`);
+      console.error(`\nsafeship: ${stillBlocking.length} issue(s) still present after fixing. Commit blocked.`);
       for (const finding of stillBlocking) {
         console.error(`  ${finding.file}:${finding.line} — ${finding.message}`);
       }
@@ -126,7 +126,7 @@ export async function scanCommand(options: ScanOptions): Promise<number> {
     }
   }
 
-  console.log('\nvibeguard: all issues resolved.');
+  console.log('\nsafeship: all issues resolved.');
   reportAdvisory(advisory);
   return 0;
 }

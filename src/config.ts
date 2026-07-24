@@ -5,7 +5,7 @@ import type { Severity } from './types.js';
 /** 'added-lines' judges only what this commit introduces; 'whole-file' judges everything. */
 export type ScanMode = 'added-lines' | 'whole-file';
 
-export interface VibeGuardConfig {
+export interface SafeShipConfig {
   secrets: boolean;
   owasp: boolean;
   deps: boolean;
@@ -22,7 +22,7 @@ const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 
 const SEVERITIES = Object.keys(SEVERITY_RANK) as Severity[];
 
 /** True when `severity` is at least as serious as the configured threshold. */
-export function blocksCommit(config: VibeGuardConfig, severity: Severity): boolean {
+export function blocksCommit(config: SafeShipConfig, severity: Severity): boolean {
   return SEVERITY_RANK[severity] <= SEVERITY_RANK[config.failOn];
 }
 
@@ -53,7 +53,7 @@ const DEFAULT_EXCLUDES: string[] = [
   '.snap'
 ];
 
-const DEFAULT_CONFIG: VibeGuardConfig = {
+const DEFAULT_CONFIG: SafeShipConfig = {
   secrets: true,
   owasp: true,
   deps: true,
@@ -68,11 +68,11 @@ const DEFAULT_CONFIG: VibeGuardConfig = {
 
 /**
  * Inline suppression marker (see spec "Config"). Either form works:
- *   // vibeguard-ignore-next-line   -> suppresses findings on the following line
- *   const x = "..."; // vibeguard-ignore  -> suppresses findings on this line
+ *   // safeship-ignore-next-line   -> suppresses findings on the following line
+ *   const x = "..."; // safeship-ignore  -> suppresses findings on this line
  */
-const IGNORE_MARKER = 'vibeguard-ignore';
-const IGNORE_NEXT_LINE_MARKER = 'vibeguard-ignore-next-line';
+const IGNORE_MARKER = 'safeship-ignore';
+const IGNORE_NEXT_LINE_MARKER = 'safeship-ignore-next-line';
 
 function readBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
@@ -91,8 +91,8 @@ function readIgnoreLines(value: unknown): Record<string, number[]> {
   return result;
 }
 
-export function loadConfig(cwd: string): VibeGuardConfig {
-  const configPath = join(cwd, '.vibeguardrc.json');
+export function loadConfig(cwd: string): SafeShipConfig {
+  const configPath = join(cwd, '.safeshiprc.json');
   if (!existsSync(configPath)) {
     return { ...DEFAULT_CONFIG };
   }
@@ -101,7 +101,7 @@ export function loadConfig(cwd: string): VibeGuardConfig {
   try {
     raw = JSON.parse(readFileSync(configPath, 'utf8'));
   } catch {
-    console.warn('vibeguard: .vibeguardrc.json is not valid JSON — using default settings.');
+    console.warn('safeship: .safeshiprc.json is not valid JSON — using default settings.');
     return { ...DEFAULT_CONFIG };
   }
 
@@ -129,7 +129,7 @@ export function loadConfig(cwd: string): VibeGuardConfig {
  * Matches a repo-relative path against an exclude entry: exact path, bare file
  * name, path suffix (`.min.js`) or directory prefix (`test/fixtures/`).
  */
-export function isExcluded(config: VibeGuardConfig, path: string): boolean {
+export function isExcluded(config: SafeShipConfig, path: string): boolean {
   const name = path.split('/').pop() ?? path;
   return config.excludeFiles.some((entry) => {
     // A directory entry matches at any depth, so a monorepo's
@@ -149,7 +149,7 @@ export interface CliOverrides {
   failOn?: string;
 }
 
-export function applyCliOverrides(config: VibeGuardConfig, overrides: CliOverrides): VibeGuardConfig {
+export function applyCliOverrides(config: SafeShipConfig, overrides: CliOverrides): SafeShipConfig {
   return {
     ...config,
     secrets: overrides.noSecrets ? false : config.secrets,
@@ -160,7 +160,7 @@ export function applyCliOverrides(config: VibeGuardConfig, overrides: CliOverrid
   };
 }
 
-export function isIgnored(config: VibeGuardConfig, file: string, line: number): boolean {
+export function isIgnored(config: SafeShipConfig, file: string, line: number): boolean {
   return config.ignoreLines[file]?.includes(line) ?? false;
 }
 
@@ -181,4 +181,4 @@ export function hasIgnoreMarker(content: string, line: number): boolean {
   return previous !== undefined && previous.includes(IGNORE_NEXT_LINE_MARKER);
 }
 
-export const defaultConfig: VibeGuardConfig = DEFAULT_CONFIG;
+export const defaultConfig: SafeShipConfig = DEFAULT_CONFIG;

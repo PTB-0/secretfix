@@ -12,10 +12,10 @@ function git(args: string[]): void {
 }
 
 beforeEach(() => {
-  repoDir = mkdtempSync(join(tmpdir(), 'vibeguard-git-'));
+  repoDir = mkdtempSync(join(tmpdir(), 'safeship-git-'));
   git(['init']);
-  git(['config', 'user.email', 'test@vibeguard.dev']);
-  git(['config', 'user.name', 'VibeGuard Test']);
+  git(['config', 'user.email', 'test@safeship.dev']);
+  git(['config', 'user.name', 'SafeShip Test']);
 });
 
 afterEach(() => {

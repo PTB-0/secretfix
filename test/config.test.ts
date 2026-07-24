@@ -7,7 +7,7 @@ import { loadConfig, applyCliOverrides, isIgnored, isExcluded, hasIgnoreMarker, 
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'vibeguard-config-'));
+  dir = mkdtempSync(join(tmpdir(), 'safeship-config-'));
 });
 
 afterEach(() => {
@@ -20,7 +20,7 @@ describe('config', () => {
   });
 
   it('merges partial config over defaults', () => {
-    writeFileSync(join(dir, '.vibeguardrc.json'), JSON.stringify({ owasp: false }));
+    writeFileSync(join(dir, '.safeshiprc.json'), JSON.stringify({ owasp: false }));
     const config = loadConfig(dir);
     expect(config.owasp).toBe(false);
     expect(config.secrets).toBe(true);
@@ -39,12 +39,12 @@ describe('config', () => {
   });
 
   it('falls back to defaults when the config file is malformed', () => {
-    writeFileSync(join(dir, '.vibeguardrc.json'), '{ not valid json');
+    writeFileSync(join(dir, '.safeshiprc.json'), '{ not valid json');
     expect(loadConfig(dir)).toEqual(defaultConfig);
   });
 
   it('ignores non-boolean values in the config file', () => {
-    writeFileSync(join(dir, '.vibeguardrc.json'), JSON.stringify({ secrets: 'nope', ignoreLines: 'nope' }));
+    writeFileSync(join(dir, '.safeshiprc.json'), JSON.stringify({ secrets: 'nope', ignoreLines: 'nope' }));
     const config = loadConfig(dir);
     expect(config.secrets).toBe(true);
     expect(config.ignoreLines).toEqual({});
@@ -69,7 +69,7 @@ describe('isExcluded', () => {
   });
 
   it('keeps the built-in excludes when the user adds their own', () => {
-    writeFileSync(join(dir, '.vibeguardrc.json'), JSON.stringify({ excludeFiles: ['test/fixtures/'] }));
+    writeFileSync(join(dir, '.safeshiprc.json'), JSON.stringify({ excludeFiles: ['test/fixtures/'] }));
     const config = loadConfig(dir);
 
     expect(isExcluded(config, 'test/fixtures/keys.ts')).toBe(true);
@@ -79,12 +79,12 @@ describe('isExcluded', () => {
 
 describe('hasIgnoreMarker', () => {
   it('suppresses a finding when the previous line carries the marker', () => {
-    const content = ['// vibeguard-ignore-next-line', 'const key = "AKIAABCDEFGHIJKLMNOP";'].join('\n');
+    const content = ['// safeship-ignore-next-line', 'const key = "AKIAABCDEFGHIJKLMNOP";'].join('\n');
     expect(hasIgnoreMarker(content, 2)).toBe(true);
   });
 
   it('suppresses a finding when the marker is a trailing comment on the same line', () => {
-    const content = 'const key = "AKIAABCDEFGHIJKLMNOP"; // vibeguard-ignore\n';
+    const content = 'const key = "AKIAABCDEFGHIJKLMNOP"; // safeship-ignore\n';
     expect(hasIgnoreMarker(content, 1)).toBe(true);
   });
 
@@ -94,7 +94,7 @@ describe('hasIgnoreMarker', () => {
   });
 
   it('does not suppress a line two below the marker', () => {
-    const content = ['// vibeguard-ignore-next-line', 'const a = 1;', 'const key = "AKIAABCDEFGHIJKLMNOP";'].join('\n');
+    const content = ['// safeship-ignore-next-line', 'const a = 1;', 'const key = "AKIAABCDEFGHIJKLMNOP";'].join('\n');
     expect(hasIgnoreMarker(content, 3)).toBe(false);
   });
 

@@ -1,5 +1,5 @@
 {
-  "name": "vibeguard",
+  "name": "safeship",
   "version": "0.1.0",
   "description": "Pre-commit security guardrail for vibe coders — catches leaked secrets, unsafe patterns, and vulnerable dependencies before they reach a commit",
   "keywords": [
@@ -18,15 +18,15 @@
   "author": "ege <ege@projecthebest.com>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PTB-0/vibeguard.git"
+    "url": "git+https://github.com/PTB-0/safeship.git"
   },
-  "homepage": "https://github.com/PTB-0/vibeguard#readme",
+  "homepage": "https://github.com/PTB-0/safeship#readme",
   "bugs": {
-    "url": "https://github.com/PTB-0/vibeguard/issues"
+    "url": "https://github.com/PTB-0/safeship/issues"
   },
   "type": "module",
   "bin": {
-    "vibeguard": "bin/vibeguard.js"
+    "safeship": "bin/safeship.js"
   },
   "files": [
     "bin",

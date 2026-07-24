@@ -8,7 +8,7 @@ describe('cli', () => {
     expect(names).toEqual(['scan', 'init']);
   });
 
-  it('sets the program name to vibeguard', () => {
-    expect(buildProgram().name()).toBe('vibeguard');
+  it('sets the program name to safeship', () => {
+    expect(buildProgram().name()).toBe('safeship');
   });
 });

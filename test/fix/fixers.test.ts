@@ -7,7 +7,7 @@ import { applyFix } from '../../src/fix/fixers.js';
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'vibeguard-fix-'));
+  dir = mkdtempSync(join(tmpdir(), 'safeship-fix-'));
 });
 
 afterEach(() => {
