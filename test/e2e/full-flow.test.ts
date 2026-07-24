@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildHookScript } from '../../src/commands/init.js';
 
-const binPath = join(process.cwd(), 'bin', 'safeship.js');
+const binPath = join(process.cwd(), 'bin', 'commitguard.js');
 
 let repoDir: string;
 
@@ -25,7 +25,7 @@ function runCli(args: string[], input = ''): { status: number; output: string } 
 }
 
 /**
- * Installs the real hook script that `safeship init` generates, with only the
+ * Installs the real hook script that `commitguard init` generates, with only the
  * invocation swapped for this working copy's CLI. Hand-writing a simpler hook
  * here would leave the generated shell logic — the /dev/tty probe in particular
  * — completely untested.
@@ -37,17 +37,17 @@ function installLocalHook(): void {
 }
 
 beforeEach(() => {
-  repoDir = mkdtempSync(join(tmpdir(), 'safeship-e2e-'));
+  repoDir = mkdtempSync(join(tmpdir(), 'commitguard-e2e-'));
   git(['init']);
-  git(['config', 'user.email', 'test@safeship.dev']);
-  git(['config', 'user.name', 'SafeShip Test']);
+  git(['config', 'user.email', 'test@commitguard.dev']);
+  git(['config', 'user.name', 'CommitGuard Test']);
 });
 
 afterEach(() => {
   rmSync(repoDir, { recursive: true, force: true });
 });
 
-describe('safeship scan (e2e)', () => {
+describe('commitguard scan (e2e)', () => {
   it('blocks the commit when a secret is left unresolved', () => {
     writeFileSync(join(repoDir, 'config.js'), 'const key = "AKIAABCDEFGHIJKLMNOP";\n');
     git(['add', 'config.js']);
@@ -95,7 +95,7 @@ describe('safeship scan (e2e)', () => {
   });
 });
 
-describe('safeship init (e2e)', () => {
+describe('commitguard init (e2e)', () => {
   it('installs a working hook and a default config', () => {
     const { status } = runCli(['init']);
 
@@ -103,8 +103,8 @@ describe('safeship init (e2e)', () => {
     const hookPath = existsSync(join(repoDir, '.husky', 'pre-commit'))
       ? join(repoDir, '.husky', 'pre-commit')
       : join(repoDir, '.git', 'hooks', 'pre-commit');
-    expect(readFileSync(hookPath, 'utf8')).toContain('npx safeship scan');
-    expect(JSON.parse(readFileSync(join(repoDir, '.safeshiprc.json'), 'utf8')).secrets).toBe(true);
+    expect(readFileSync(hookPath, 'utf8')).toContain('npx commitguard scan');
+    expect(JSON.parse(readFileSync(join(repoDir, '.commitguardrc.json'), 'utf8')).secrets).toBe(true);
   });
 });
 

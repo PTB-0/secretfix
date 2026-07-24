@@ -1,15 +1,20 @@
 {
-  "name": "safeship",
+  "name": "commitguard",
   "version": "0.1.0",
-  "description": "Pre-commit security guardrail for vibe coders — catches leaked secrets, unsafe patterns, and vulnerable dependencies before they reach a commit",
+  "description": "Finds and automatically fixes leaked secrets, insecure patterns and vulnerable dependencies in your git pre-commit hook — zero false positives on code you did not touch",
   "keywords": [
-    "security",
+    "secret-scanning",
+    "secret-detection",
+    "credential-scanner",
+    "gitleaks-alternative",
     "pre-commit",
+    "pre-commit-hook",
     "git-hooks",
     "secrets",
-    "secret-scanning",
-    "owasp",
+    "security",
+    "devsecops",
     "sast",
+    "owasp",
     "cve",
     "husky",
     "vibe-coding"
@@ -18,15 +23,15 @@
   "author": "ege <ege@projecthebest.com>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PTB-0/safeship.git"
+    "url": "git+https://github.com/PTB-0/commitguard.git"
   },
-  "homepage": "https://github.com/PTB-0/safeship#readme",
+  "homepage": "https://github.com/PTB-0/commitguard#readme",
   "bugs": {
-    "url": "https://github.com/PTB-0/safeship/issues"
+    "url": "https://github.com/PTB-0/commitguard/issues"
   },
   "type": "module",
   "bin": {
-    "safeship": "bin/safeship.js"
+    "commitguard": "bin/commitguard.js"
   },
   "files": [
     "bin",

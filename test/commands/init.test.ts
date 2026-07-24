@@ -7,7 +7,7 @@ import { initCommand } from '../../src/commands/init.js';
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'safeship-init-'));
+  dir = mkdtempSync(join(tmpdir(), 'commitguard-init-'));
 });
 
 afterEach(() => {
@@ -21,25 +21,25 @@ describe('initCommand', () => {
     expect(installHusky).toHaveBeenCalledWith(dir);
   });
 
-  it('writes the pre-commit hook running safeship scan', () => {
+  it('writes the pre-commit hook running commitguard scan', () => {
     initCommand(dir, { installHusky: vi.fn() });
     const hook = readFileSync(join(dir, '.husky', 'pre-commit'), 'utf8');
-    expect(hook).toContain('npx safeship scan');
+    expect(hook).toContain('npx commitguard scan');
   });
 
-  it('writes a default .safeshiprc.json if none exists', () => {
+  it('writes a default .commitguardrc.json if none exists', () => {
     initCommand(dir, { installHusky: vi.fn() });
-    const config = JSON.parse(readFileSync(join(dir, '.safeshiprc.json'), 'utf8'));
+    const config = JSON.parse(readFileSync(join(dir, '.commitguardrc.json'), 'utf8'));
     expect(config.secrets).toBe(true);
   });
 
-  it('does not overwrite an existing .safeshiprc.json', () => {
+  it('does not overwrite an existing .commitguardrc.json', () => {
     mkdirSync(join(dir, '.husky'), { recursive: true });
-    writeFileSync(join(dir, '.safeshiprc.json'), JSON.stringify({ secrets: false }));
+    writeFileSync(join(dir, '.commitguardrc.json'), JSON.stringify({ secrets: false }));
 
     initCommand(dir, { installHusky: vi.fn() });
 
-    const config = JSON.parse(readFileSync(join(dir, '.safeshiprc.json'), 'utf8'));
+    const config = JSON.parse(readFileSync(join(dir, '.commitguardrc.json'), 'utf8'));
     expect(config.secrets).toBe(false);
   });
 
@@ -60,7 +60,7 @@ describe('initCommand', () => {
 
     const hook = readFileSync(join(dir, '.husky', 'pre-commit'), 'utf8');
     expect(hook).toContain('npx lint-staged');
-    expect(hook).toContain('npx safeship scan');
+    expect(hook).toContain('npx commitguard scan');
   });
 
   it("replaces husky's npm test placeholder when init installed husky itself", () => {
@@ -72,7 +72,7 @@ describe('initCommand', () => {
     initCommand(dir, { installHusky });
 
     const hook = readFileSync(join(dir, '.husky', 'pre-commit'), 'utf8');
-    expect(hook).toContain('npx safeship scan');
+    expect(hook).toContain('npx commitguard scan');
     expect(hook).not.toContain('npm test');
   });
 
@@ -81,7 +81,7 @@ describe('initCommand', () => {
     initCommand(dir, { installHusky: vi.fn() });
 
     const hook = readFileSync(join(dir, '.husky', 'pre-commit'), 'utf8');
-    expect(hook.match(/npx safeship scan/g)).toHaveLength(1);
+    expect(hook.match(/npx commitguard scan/g)).toHaveLength(1);
   });
 
   it('falls back to .git/hooks/pre-commit when husky cannot be installed', () => {
@@ -93,7 +93,7 @@ describe('initCommand', () => {
     initCommand(dir, { installHusky });
 
     expect(existsSync(join(dir, '.husky', 'pre-commit'))).toBe(false);
-    expect(readFileSync(join(dir, '.git', 'hooks', 'pre-commit'), 'utf8')).toContain('npx safeship scan');
+    expect(readFileSync(join(dir, '.git', 'hooks', 'pre-commit'), 'utf8')).toContain('npx commitguard scan');
   });
 
   it('throws a clear error when there is no git repository and husky is unavailable', () => {

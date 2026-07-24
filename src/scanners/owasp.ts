@@ -87,7 +87,7 @@ export const owaspScanner: Scanner = {
                 // The marker is what makes accepting this fix meaningful: the line
                 // itself is unchanged (only a human can rewrite it safely), so
                 // without a suppression the re-scan would block the commit forever.
-                replacement: `// safeship-ignore-next-line — reviewed: ${pattern.name}\n${line}`
+                replacement: `// commitguard-ignore-next-line — reviewed: ${pattern.name}\n${line}`
               }
             });
           }

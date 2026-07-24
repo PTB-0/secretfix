@@ -1,6 +1,6 @@
-# SafeShip
+# CommitGuard
 
-Ship with confidence. SafeShip runs on `git commit` and stops the three mistakes
+Ship with confidence. CommitGuard runs on `git commit` and stops the three mistakes
 that AI-assisted code makes most often — a leaked API key, an unsafe pattern like
 `eval()` or a concatenated SQL query, and a dependency with a known CVE — then
 explains each one in plain English and offers to fix it for you.
@@ -8,7 +8,7 @@ explains each one in plain English and offers to fix it for you.
 ```
 $ git commit -m "add stripe checkout"
 
-safeship: 2 issue(s) found in your staged changes.
+commitguard: 2 issue(s) found in your staged changes.
 
 Possible Stripe Live Key found in checkout.js:14. Move this value to an
 environment variable instead of committing it.
@@ -18,17 +18,17 @@ SQL query appears to be built with string concatenation/interpolation. Use
 parameterized queries to avoid SQL injection. (db.js:31)
 [CRITICAL] Fix this now? (db.js:31) [y/n/skip] › n
 
-safeship: 1 unresolved issue(s). Commit blocked.
+commitguard: 1 unresolved issue(s). Commit blocked.
 ```
 
 ## Install
 
 ```bash
-npx safeship init
+npx commitguard init
 ```
 
 That installs a `pre-commit` hook (via husky, or a plain `.git/hooks/pre-commit`
-if husky is unavailable) and writes a default `.safeshiprc.json`. An existing
+if husky is unavailable) and writes a default `.commitguardrc.json`. An existing
 pre-commit hook is appended to, never overwritten, and re-running `init` is safe.
 
 Requires Node.js 18 or newer.
@@ -41,7 +41,7 @@ Requires Node.js 18 or newer.
 | `owasp` | `eval()` / `new Function()`, SQL built by string concatenation, shell commands built by string concatenation, `innerHTML` / `dangerouslySetInnerHTML`, disabled TLS verification, MD5/SHA-1 password hashing, hardcoded password literals, `Math.random()` used where a CSPRNG belongs |
 | `deps` | Vulnerable npm dependencies, via `npm audit` cross-referenced with [OSV.dev](https://osv.dev) |
 
-**Only the lines your commit adds are judged.** Install SafeShip into a codebase
+**Only the lines your commit adds are judged.** Install CommitGuard into a codebase
 that already has an `eval()` in it and you can still commit — you only answer for
 what you are introducing. Pass `--whole-file` (or set `"scanMode": "whole-file"`)
 to audit entire staged files instead. Two things are always reported regardless:
@@ -62,7 +62,7 @@ the line with `"failOn": "medium"` or `--fail-on medium`.
 
 ## Fixes
 
-Answer `y` and SafeShip applies the fix and re-stages the file:
+Answer `y` and CommitGuard applies the fix and re-stages the file:
 
 - **Leaked secret** — the value moves to `.env`, `.env` is added to `.gitignore`,
   and the source line becomes `process.env.YOUR_KEY`. A second secret that would
@@ -74,15 +74,15 @@ Answer `y` and SafeShip applies the fix and re-stages the file:
   `git restore --staged` and added to `.gitignore`. The file itself stays exactly
   where it is on your disk; only the commit is changed.
 - **Unsafe pattern** — no machine can rewrite these safely, so the line is
-  annotated with `// safeship-ignore-next-line — reviewed: <rule>`, recording
+  annotated with `// commitguard-ignore-next-line — reviewed: <rule>`, recording
   that you looked at it. The line itself is left exactly as you wrote it.
 
-After every accepted fix SafeShip re-scans the updated index, so a fix that did
+After every accepted fix CommitGuard re-scans the updated index, so a fix that did
 not actually resolve the problem still blocks the commit.
 
 ## Configuration
 
-`.safeshiprc.json` in the repository root:
+`.commitguardrc.json` in the repository root:
 
 ```json
 {
@@ -111,20 +111,20 @@ not actually resolve the problem still blocks the commit.
 Silence a single line from the source itself:
 
 ```js
-// safeship-ignore-next-line
+// commitguard-ignore-next-line
 const testKey = "AKIAIOSFODNN7EXAMPLE";
 
-const other = "AKIAIOSFODNN7EXAMPLE"; // safeship-ignore
+const other = "AKIAIOSFODNN7EXAMPLE"; // commitguard-ignore
 ```
 
 Flags override the config file for one run:
 
 ```bash
-safeship scan --no-deps            # skip the dependency scan (it can hit the network)
-safeship scan --no-owasp
-safeship scan --no-secrets
-safeship scan --whole-file         # audit whole files, not just added lines
-safeship scan --fail-on medium     # let medium findings block too
+commitguard scan --no-deps            # skip the dependency scan (it can hit the network)
+commitguard scan --no-owasp
+commitguard scan --no-secrets
+commitguard scan --whole-file         # audit whole files, not just added lines
+commitguard scan --fail-on medium     # let medium findings block too
 ```
 
 ## Exit codes
@@ -134,7 +134,7 @@ safeship scan --fail-on medium     # let medium findings block too
 | `0` | Nothing to report, or every finding was fixed and the re-scan came back clean |
 | `1` | Unresolved findings, or the scan could not complete |
 
-SafeShip **fails closed**: if it crashes, times out, or cannot read your answers,
+CommitGuard **fails closed**: if it crashes, times out, or cannot read your answers,
 the commit is blocked rather than let through. In particular, a hook launched
 without a terminal — a GUI git client, CI — answers `skip` for every finding and
 blocks, instead of silently passing.

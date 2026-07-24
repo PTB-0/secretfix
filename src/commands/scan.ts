@@ -8,7 +8,7 @@ import {
   blocksCommit,
   compareSeverity,
   type CliOverrides,
-  type SafeShipConfig
+  type CommitGuardConfig
 } from '../config.js';
 import { runScanners } from '../orchestrator.js';
 import { secretsScanner } from '../scanners/secrets.js';
@@ -29,7 +29,7 @@ export interface ScanOptions extends CliOverrides {
  */
 const DIFF_SCOPED_SCANNERS: ReadonlySet<Finding['scanner']> = new Set<Finding['scanner']>(['secrets', 'owasp']);
 
-function selectScanners(config: SafeShipConfig): Scanner[] {
+function selectScanners(config: CommitGuardConfig): Scanner[] {
   const scanners: Scanner[] = [];
   if (config.secrets) scanners.push(secretsScanner);
   if (config.owasp) scanners.push(owaspScanner);
@@ -40,7 +40,7 @@ function selectScanners(config: SafeShipConfig): Scanner[] {
 /** Drops findings the user has silenced, via config or an inline marker. */
 function actionableFindings(
   findings: Finding[],
-  config: SafeShipConfig,
+  config: CommitGuardConfig,
   files: StagedFile[],
   addedLines: Map<string, Set<number>> | undefined
 ): Finding[] {
@@ -63,7 +63,7 @@ function actionableFindings(
 
 async function collectFindings(
   scanners: Scanner[],
-  config: SafeShipConfig,
+  config: CommitGuardConfig,
   cwd: string
 ): Promise<{ findings: Finding[]; warnings: string[] }> {
   const files = getStagedFiles(cwd).filter((file) => !isExcluded(config, file.path));
@@ -74,7 +74,7 @@ async function collectFindings(
 
 function reportAdvisory(findings: Finding[]): void {
   if (findings.length === 0) return;
-  console.log(`\nsafeship: ${findings.length} lower-severity note(s) — not blocking this commit:`);
+  console.log(`\ncommitguard: ${findings.length} lower-severity note(s) — not blocking this commit:`);
   for (const finding of findings) {
     console.log(`  [${finding.severity}] ${finding.file}:${finding.line} — ${finding.message}`);
   }
@@ -88,26 +88,26 @@ export async function scanCommand(options: ScanOptions): Promise<number> {
   const { findings, warnings } = await collectFindings(scanners, config, cwd);
 
   for (const warning of warnings) {
-    console.warn(`safeship: warning — ${warning}`);
+    console.warn(`commitguard: warning — ${warning}`);
   }
 
   const blocking = findings.filter((finding) => blocksCommit(config, finding.severity));
   const advisory = findings.filter((finding) => !blocksCommit(config, finding.severity));
 
   if (blocking.length === 0) {
-    console.log('safeship: no blocking issues found.');
+    console.log('commitguard: no blocking issues found.');
     reportAdvisory(advisory);
     return 0;
   }
 
-  console.log(`\nsafeship: ${blocking.length} issue(s) found in your staged changes.\n`);
+  console.log(`\ncommitguard: ${blocking.length} issue(s) found in your staged changes.\n`);
 
   const { resolved, unresolved } = await resolveFindings(blocking, cwd, options.prompt);
 
   if (unresolved.length > 0) {
     console.error(
-      `\nsafeship: ${unresolved.length} unresolved issue(s). Commit blocked.\n` +
-        'Fix them, or silence a line with "// safeship-ignore-next-line", or run "git commit --no-verify" to bypass.'
+      `\ncommitguard: ${unresolved.length} unresolved issue(s). Commit blocked.\n` +
+        'Fix them, or silence a line with "// commitguard-ignore-next-line", or run "git commit --no-verify" to bypass.'
     );
     return 1;
   }
@@ -118,7 +118,7 @@ export async function scanCommand(options: ScanOptions): Promise<number> {
     const verification = await collectFindings(scanners, config, cwd);
     const stillBlocking = verification.findings.filter((finding) => blocksCommit(config, finding.severity));
     if (stillBlocking.length > 0) {
-      console.error(`\nsafeship: ${stillBlocking.length} issue(s) still present after fixing. Commit blocked.`);
+      console.error(`\ncommitguard: ${stillBlocking.length} issue(s) still present after fixing. Commit blocked.`);
       for (const finding of stillBlocking) {
         console.error(`  ${finding.file}:${finding.line} — ${finding.message}`);
       }
@@ -126,7 +126,7 @@ export async function scanCommand(options: ScanOptions): Promise<number> {
     }
   }
 
-  console.log('\nsafeship: all issues resolved.');
+  console.log('\ncommitguard: all issues resolved.');
   reportAdvisory(advisory);
   return 0;
 }

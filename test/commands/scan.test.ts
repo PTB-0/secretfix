@@ -12,10 +12,10 @@ function git(args: string[]): void {
 }
 
 beforeEach(() => {
-  repoDir = mkdtempSync(join(tmpdir(), 'safeship-scan-'));
+  repoDir = mkdtempSync(join(tmpdir(), 'commitguard-scan-'));
   git(['init']);
-  git(['config', 'user.email', 'test@safeship.dev']);
-  git(['config', 'user.name', 'SafeShip Test']);
+  git(['config', 'user.email', 'test@commitguard.dev']);
+  git(['config', 'user.name', 'CommitGuard Test']);
 });
 
 afterEach(() => {
@@ -74,7 +74,7 @@ describe('scanCommand', () => {
 
     expect(exitCode).toBe(0);
     expect(readFileSync(join(repoDir, 'a.js'), 'utf8')).toBe(
-      '// safeship-ignore-next-line — reviewed: eval-usage\neval(userInput);\n'
+      '// commitguard-ignore-next-line — reviewed: eval-usage\neval(userInput);\n'
     );
   });
 
@@ -88,9 +88,9 @@ describe('scanCommand', () => {
     expect(exitCode).toBe(0);
   });
 
-  it('respects ignoreLines from .safeshiprc.json', async () => {
+  it('respects ignoreLines from .commitguardrc.json', async () => {
     writeFileSync(join(repoDir, 'config.js'), 'const key = "AKIAABCDEFGHIJKLMNOP";\n');
-    writeFileSync(join(repoDir, '.safeshiprc.json'), JSON.stringify({ deps: false, ignoreLines: { 'config.js': [1] } }));
+    writeFileSync(join(repoDir, '.commitguardrc.json'), JSON.stringify({ deps: false, ignoreLines: { 'config.js': [1] } }));
     git(['add', 'config.js']);
 
     const exitCode = await scanCommand({ cwd: repoDir, prompt: async () => 'skip' as const });
@@ -98,8 +98,8 @@ describe('scanCommand', () => {
     expect(exitCode).toBe(0);
   });
 
-  it('respects an inline safeship-ignore-next-line marker', async () => {
-    writeFileSync(join(repoDir, 'config.js'), '// safeship-ignore-next-line\nconst key = "AKIAABCDEFGHIJKLMNOP";\n');
+  it('respects an inline commitguard-ignore-next-line marker', async () => {
+    writeFileSync(join(repoDir, 'config.js'), '// commitguard-ignore-next-line\nconst key = "AKIAABCDEFGHIJKLMNOP";\n');
     git(['add', 'config.js']);
 
     const exitCode = await scanCommand({ cwd: repoDir, prompt: async () => 'skip' as const, noDeps: true });
@@ -118,7 +118,7 @@ describe('scanCommand', () => {
 
   it('honours excludeFiles from config', async () => {
     writeFileSync(join(repoDir, 'fixtures.js'), 'const key = "AKIAABCDEFGHIJKLMNOP";\n');
-    writeFileSync(join(repoDir, '.safeshiprc.json'), JSON.stringify({ deps: false, excludeFiles: ['fixtures.js'] }));
+    writeFileSync(join(repoDir, '.commitguardrc.json'), JSON.stringify({ deps: false, excludeFiles: ['fixtures.js'] }));
     git(['add', 'fixtures.js']);
 
     const exitCode = await scanCommand({ cwd: repoDir, prompt: async () => 'skip' as const });

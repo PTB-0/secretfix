@@ -7,7 +7,7 @@ import { applyFix } from '../../src/fix/fixers.js';
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'safeship-fix-'));
+  dir = mkdtempSync(join(tmpdir(), 'commitguard-fix-'));
 });
 
 afterEach(() => {
