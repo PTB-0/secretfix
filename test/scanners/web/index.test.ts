@@ -92,4 +92,19 @@ describe('createWebScanner', () => {
     const [finding] = await scanner.scan([{ path: 'a.ts', content: 'BOOM' }]);
     expect(finding.message).toContain('[test/next-only]');
   });
+
+  it('ships the full catalogue with unique ids', async () => {
+    const { ALL_RULES } = await import('../../../src/scanners/web/index.js');
+    expect(ALL_RULES).toHaveLength(26);
+    expect(new Set(ALL_RULES.map((rule) => rule.id)).size).toBe(26);
+  });
+
+  it('never lets a heuristic rule declare a blocking severity without resolving it', async () => {
+    const { ALL_RULES } = await import('../../../src/scanners/web/index.js');
+    const heuristics = ALL_RULES.filter((rule) => rule.confidence === 'heuristic');
+    expect(heuristics.length).toBeGreaterThan(0);
+    // Every heuristic rule must be a block or file rule: a line rule has no
+    // opportunity to set `resolved`, so it could never be corroborated.
+    expect(heuristics.every((rule) => rule.kind !== 'line')).toBe(true);
+  });
 });
