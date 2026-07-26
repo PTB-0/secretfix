@@ -34,7 +34,7 @@ export function routePathFor(filePath: string): string {
   path = path.replace(/\/route\.[cm]?[jt]sx?$/, '');
   path = path.replace(/\.[cm]?[jt]sx?$/, '');
   path = path.replace(/\((?:[^/)]*)\)\//g, ''); // route groups
-  path = path.replace(/\[\[?\.{3}?\w+\]?\]/g, '*'); // [id], [...slug], [[...slug]]
+  path = path.replace(/\[\[?(?:\.{3})?\w+\]?\]/g, '*'); // [id], [...slug], [[...slug]]
   path = path.replace(/\/index$/, '');
   return `/${path}`.replace(/\/{2,}/g, '/');
 }

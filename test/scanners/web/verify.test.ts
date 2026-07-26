@@ -18,6 +18,8 @@ describe('routePathFor', () => {
     ['src/app/api/posts/route.ts', '/api/posts'],
     ['app/(dashboard)/api/billing/route.ts', '/api/billing'],
     ['app/api/posts/[id]/route.ts', '/api/posts/*'],
+    ['app/api/posts/[...slug]/route.ts', '/api/posts/*'],
+    ['app/api/posts/[[...slug]]/route.ts', '/api/posts/*'],
     ['pages/api/login.ts', '/api/login']
   ])('maps %s to %s', (filePath, expected) => {
     expect(routePathFor(filePath)).toBe(expected);
