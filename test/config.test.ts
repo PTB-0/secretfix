@@ -49,6 +49,37 @@ describe('config', () => {
     expect(config.secrets).toBe(true);
     expect(config.ignoreLines).toEqual({});
   });
+
+  it('enables the web scanner by default', () => {
+    expect(defaultConfig.web).toBe(true);
+  });
+
+  it('leaves the AI fix layer off by default', () => {
+    expect(defaultConfig.ai).toBe(false);
+  });
+
+  it('reads per-rule web disables from the config file', () => {
+    writeFileSync(
+      join(dir, '.secretfixrc.json'),
+      JSON.stringify({ webRules: { 'nextjs/route-handler-no-auth': false } })
+    );
+    expect(loadConfig(dir).webRules['nextjs/route-handler-no-auth']).toBe(false);
+  });
+
+  it('ignores non-boolean webRules entries', () => {
+    writeFileSync(join(dir, '.secretfixrc.json'), JSON.stringify({ webRules: { 'a/b': 'nope', 'c/d': true } }));
+    const { webRules } = loadConfig(dir);
+    expect(webRules['a/b']).toBeUndefined();
+    expect(webRules['c/d']).toBe(true);
+  });
+
+  it('--no-web overrides the config file', () => {
+    expect(applyCliOverrides({ ...defaultConfig, web: true }, { noWeb: true }).web).toBe(false);
+  });
+
+  it('--ai overrides the config file', () => {
+    expect(applyCliOverrides({ ...defaultConfig, ai: false }, { ai: true }).ai).toBe(true);
+  });
 });
 
 describe('isExcluded', () => {

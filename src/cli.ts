@@ -77,21 +77,32 @@ export function buildProgram(): Command {
     .option('--no-secrets', 'disable the secrets scanner')
     .option('--no-owasp', 'disable the OWASP pattern scanner')
     .option('--no-deps', 'disable the dependency CVE scanner')
+    .option('--no-web', 'disable the web-application rule family')
     .option('--whole-file', 'scan entire staged files, not only the lines this commit adds')
     .option('--fail-on <severity>', 'lowest severity that blocks the commit (critical|high|medium|low)')
-    .action(async (opts: { secrets: boolean; owasp: boolean; deps: boolean; wholeFile?: boolean; failOn?: string }) => {
-      // Fail closed: anything that ends this process before the scan reports a
-      // clean result — a crash, an unsettled promise — must block the commit.
-      process.exitCode = 1;
-      process.exitCode = await scanCommand({
-        noSecrets: !opts.secrets,
-        noOwasp: !opts.owasp,
-        noDeps: !opts.deps,
-        wholeFile: opts.wholeFile,
-        failOn: opts.failOn,
-        prompt: createPrompt()
-      });
-    });
+    .action(
+      async (opts: {
+        secrets: boolean;
+        owasp: boolean;
+        deps: boolean;
+        web: boolean;
+        wholeFile?: boolean;
+        failOn?: string;
+      }) => {
+        // Fail closed: anything that ends this process before the scan reports a
+        // clean result — a crash, an unsettled promise — must block the commit.
+        process.exitCode = 1;
+        process.exitCode = await scanCommand({
+          noSecrets: !opts.secrets,
+          noOwasp: !opts.owasp,
+          noDeps: !opts.deps,
+          noWeb: !opts.web,
+          wholeFile: opts.wholeFile,
+          failOn: opts.failOn,
+          prompt: createPrompt()
+        });
+      }
+    );
 
   program
     .command('init')

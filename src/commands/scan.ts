@@ -14,8 +14,11 @@ import { runScanners } from '../orchestrator.js';
 import { secretsScanner } from '../scanners/secrets.js';
 import { owaspScanner } from '../scanners/owasp.js';
 import { depsScanner } from '../scanners/deps.js';
+import { createScanContext } from '../scanners/web/context.js';
+import { createWebScanner, ALL_RULES } from '../scanners/web/index.js';
 import { resolveFindings, type PromptFn } from '../fix/interactive.js';
 import type { Finding, Scanner, StagedFile } from '../types.js';
+import type { ScanContext } from '../scanners/web/types.js';
 
 export interface ScanOptions extends CliOverrides {
   cwd?: string;
@@ -27,13 +30,20 @@ export interface ScanOptions extends CliOverrides {
  * typed, so diff-scoping them would hide a vulnerable transitive package just
  * because its line was not edited. Only line-anchored scanners are scoped.
  */
-const DIFF_SCOPED_SCANNERS: ReadonlySet<Finding['scanner']> = new Set<Finding['scanner']>(['secrets', 'owasp']);
+const DIFF_SCOPED_SCANNERS: ReadonlySet<Finding['scanner']> = new Set<Finding['scanner']>([
+  'secrets',
+  'owasp',
+  'web'
+]);
 
-function selectScanners(config: SecretFixConfig): Scanner[] {
+function selectScanners(config: SecretFixConfig, context: ScanContext): Scanner[] {
   const scanners: Scanner[] = [];
   if (config.secrets) scanners.push(secretsScanner);
   if (config.owasp) scanners.push(owaspScanner);
   if (config.deps) scanners.push(depsScanner);
+  if (config.web) {
+    scanners.push(createWebScanner(context, ALL_RULES.filter((rule) => config.webRules[rule.id] !== false)));
+  }
   return scanners;
 }
 
@@ -83,7 +93,7 @@ function reportAdvisory(findings: Finding[]): void {
 export async function scanCommand(options: ScanOptions): Promise<number> {
   const cwd = options.cwd ?? process.cwd();
   const config = applyCliOverrides(loadConfig(cwd), options);
-  const scanners = selectScanners(config);
+  const scanners = selectScanners(config, createScanContext(cwd));
 
   const { findings, warnings } = await collectFindings(scanners, config, cwd);
 

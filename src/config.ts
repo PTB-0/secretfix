@@ -9,6 +9,12 @@ export interface SecretFixConfig {
   secrets: boolean;
   owasp: boolean;
   deps: boolean;
+  /** The web-application rule family (auth, injection, secret exposure, hardening). */
+  web: boolean;
+  /** Per-rule disables keyed by rule id. A missing key means enabled. */
+  webRules: Record<string, boolean>;
+  /** Opt-in: let an LLM propose a patch for findings with no deterministic fix. */
+  ai: boolean;
   ignoreLines: Record<string, number[]>;
   /** Paths never scanned. User entries are added to the built-in list, not replacing it. */
   excludeFiles: string[];
@@ -57,6 +63,9 @@ const DEFAULT_CONFIG: SecretFixConfig = {
   secrets: true,
   owasp: true,
   deps: true,
+  web: true,
+  webRules: {},
+  ai: false,
   ignoreLines: {},
   excludeFiles: DEFAULT_EXCLUDES,
   scanMode: 'added-lines',
@@ -91,6 +100,15 @@ function readIgnoreLines(value: unknown): Record<string, number[]> {
   return result;
 }
 
+function readWebRules(value: unknown): Record<string, boolean> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+  const result: Record<string, boolean> = {};
+  for (const [id, enabled] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof enabled === 'boolean') result[id] = enabled;
+  }
+  return result;
+}
+
 export function loadConfig(cwd: string): SecretFixConfig {
   const configPath = join(cwd, '.secretfixrc.json');
   if (!existsSync(configPath)) {
@@ -118,6 +136,9 @@ export function loadConfig(cwd: string): SecretFixConfig {
     secrets: readBoolean(parsed.secrets, DEFAULT_CONFIG.secrets),
     owasp: readBoolean(parsed.owasp, DEFAULT_CONFIG.owasp),
     deps: readBoolean(parsed.deps, DEFAULT_CONFIG.deps),
+    web: readBoolean(parsed.web, DEFAULT_CONFIG.web),
+    webRules: readWebRules(parsed.webRules),
+    ai: readBoolean(parsed.ai, DEFAULT_CONFIG.ai),
     ignoreLines: readIgnoreLines(parsed.ignoreLines),
     excludeFiles: [...DEFAULT_EXCLUDES, ...userExcludes],
     scanMode: parsed.scanMode === 'whole-file' ? 'whole-file' : DEFAULT_CONFIG.scanMode,
@@ -145,6 +166,8 @@ export interface CliOverrides {
   noSecrets?: boolean;
   noOwasp?: boolean;
   noDeps?: boolean;
+  noWeb?: boolean;
+  ai?: boolean;
   wholeFile?: boolean;
   failOn?: string;
 }
@@ -155,6 +178,8 @@ export function applyCliOverrides(config: SecretFixConfig, overrides: CliOverrid
     secrets: overrides.noSecrets ? false : config.secrets,
     owasp: overrides.noOwasp ? false : config.owasp,
     deps: overrides.noDeps ? false : config.deps,
+    web: overrides.noWeb ? false : config.web,
+    ai: overrides.ai === true ? true : config.ai,
     scanMode: overrides.wholeFile ? 'whole-file' : config.scanMode,
     failOn: SEVERITIES.includes(overrides.failOn as Severity) ? (overrides.failOn as Severity) : config.failOn
   };

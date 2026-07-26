@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { scanCommand } from '../../src/commands/scan.js';
@@ -238,5 +238,68 @@ describe('scanCommand', () => {
     const exitCode = await scanCommand({ cwd: repoDir, prompt: async () => 'n' as const });
 
     expect(exitCode).toBe(1);
+  });
+
+  it('blocks a commit that stages an SSRF hole', async () => {
+    mkdirSync(join(repoDir, 'app/api/proxy'), { recursive: true });
+    writeFileSync(
+      join(repoDir, 'app/api/proxy/route.ts'),
+      'export async function GET(req) {\n  return fetch(req.query.url);\n}\n'
+    );
+    git(['add', 'app/api/proxy/route.ts']);
+
+    const exitCode = await scanCommand({ cwd: repoDir, prompt: async () => 'skip' as const, noDeps: true });
+
+    expect(exitCode).toBe(1);
+  });
+
+  it('--no-web turns the family off entirely', async () => {
+    mkdirSync(join(repoDir, 'app/api/proxy'), { recursive: true });
+    writeFileSync(
+      join(repoDir, 'app/api/proxy/route.ts'),
+      'export async function GET(req) {\n  return fetch(req.query.url);\n}\n'
+    );
+    git(['add', 'app/api/proxy/route.ts']);
+
+    const exitCode = await scanCommand({
+      cwd: repoDir,
+      prompt: async () => 'skip' as const,
+      noDeps: true,
+      noWeb: true
+    });
+
+    expect(exitCode).toBe(0);
+  });
+
+  it('a per-rule disable silences only that rule', async () => {
+    writeFileSync(join(repoDir, '.secretfixrc.json'), JSON.stringify({ webRules: { 'agnostic/ssrf': false } }));
+    mkdirSync(join(repoDir, 'app/api/proxy'), { recursive: true });
+    writeFileSync(
+      join(repoDir, 'app/api/proxy/route.ts'),
+      'export async function GET(req) {\n  return fetch(req.query.url);\n}\n'
+    );
+    git(['add', 'app/api/proxy/route.ts']);
+
+    const exitCode = await scanCommand({ cwd: repoDir, prompt: async () => 'skip' as const, noDeps: true });
+
+    expect(exitCode).toBe(0);
+  });
+
+  it('does not report a web hole on a line this commit did not add', async () => {
+    // Seeded as a real commit (not just staged), so the vulnerable line is history
+    // rather than a change — this is the case diff-scoping exists to protect.
+    writeFileSync(join(repoDir, 'api.ts'), 'export function get(req) {\n  return fetch(req.query.url);\n}\n');
+    git(['add', 'api.ts']);
+    git(['commit', '-m', 'seed', '--no-verify']);
+
+    writeFileSync(
+      join(repoDir, 'api.ts'),
+      'export function get(req) {\n  return fetch(req.query.url);\n}\n// a comment\n'
+    );
+    git(['add', 'api.ts']);
+
+    const exitCode = await scanCommand({ cwd: repoDir, prompt: async () => 'skip' as const, noDeps: true });
+
+    expect(exitCode).toBe(0);
   });
 });
