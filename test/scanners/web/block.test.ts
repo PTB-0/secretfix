@@ -65,6 +65,23 @@ describe('extractBlock', () => {
     expect(block?.startLine).toBe(2);
     expect(block?.endLine).toBe(4);
   });
+
+  it('ignores braces inside a regex literal', () => {
+    expect(extractBlock(['function f() {', '  const closer = /}/;', '  return 1;', '}'], 0)?.endLine).toBe(4);
+  });
+
+  it('ignores braces and quotes inside a character class in a regex', () => {
+    expect(extractBlock(['function f() {', '  const cls = /[{\'"]]/;', '  return 1;', '}'], 0)?.endLine).toBe(4);
+  });
+
+  it('does not mistake division for a regex', () => {
+    const lines = ['function f() {', '  const half = total / 2;', '  return half;', '}'];
+    expect(extractBlock(lines, 0)?.endLine).toBe(4);
+  });
+
+  it('returns undefined for an unterminated regex literal', () => {
+    expect(extractBlock(['function f() {', '  const pattern = /unclosed'], 0)).toBeUndefined();
+  });
 });
 
 describe('forEachBlock', () => {
@@ -104,5 +121,14 @@ describe('forEachBlock', () => {
   it('skips a triggering line whose block never closes', () => {
     const hits = forEachBlock({ path: 'a.ts', content: 'function a() {\n  x();' }, /function/, (_t, line) => ({ line }));
     expect(hits).toEqual([]);
+  });
+
+  it('does not lose matches when the trigger has a global flag', () => {
+    const content = 'function a() {\n  x();\n}\nfunction b() {\n  y();\n}';
+    const hits = forEachBlock({ path: 'a.ts', content }, /function (\w+)/g, (_blockText, line, match) =>
+      match[1] ? { line } : undefined
+    );
+
+    expect(hits).toEqual([{ line: 1 }, { line: 4 }]);
   });
 });

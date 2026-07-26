@@ -12,15 +12,12 @@ export interface Block {
 /**
  * Slices the brace-delimited region beginning at or after `fromIndex` (0-based
  * line index), balancing braces while ignoring any that sit inside a string,
- * template literal, or comment.
+ * template literal, comment, or regex literal.
  *
- * Returns undefined when the region never closes, or when there is no brace at
- * all. Callers treat that as "no evidence" and skip the rule for that file —
- * an unparseable region must never manufacture a finding.
- *
- * Known limitation: a regex literal containing an unbalanced brace or a lone
- * quote (`/[{'"]/`) confuses the scan. Rare inside handler bodies, and the
- * failure mode is a skipped rule, not a false positive.
+ * Returns undefined when the region never closes, when there is no brace at
+ * all, or when a regex literal is unterminated. Callers treat that as "no evidence"
+ * and skip the rule for that file — an unparseable region must never manufacture
+ * a finding.
  */
 export function extractBlock(lines: string[], fromIndex: number): Block | undefined {
   let depth = 0;
@@ -33,6 +30,7 @@ export function extractBlock(lines: string[], fromIndex: number): Block | undefi
 
   for (let i = fromIndex; i < lines.length; i += 1) {
     const line = lines[i];
+    let lastSignificant: string | undefined;
 
     for (let c = 0; c < line.length; c += 1) {
       const ch = line[c];
@@ -42,6 +40,7 @@ export function extractBlock(lines: string[], fromIndex: number): Block | undefi
         if (ch === '*' && next === '/') {
           inBlockComment = false;
           c += 1;
+          lastSignificant = '/';
         }
         continue;
       }
@@ -61,6 +60,18 @@ export function extractBlock(lines: string[], fromIndex: number): Block | undefi
         c += 1;
         continue;
       }
+
+      // Detect regex literal: if this / could start a regex, skip the literal.
+      if (ch === '/' && next !== '/' && next !== '*' && isRegexStart(lastSignificant)) {
+        const regexEnd = skipRegex(line, c);
+        if (regexEnd === undefined) {
+          return undefined; // unterminated regex
+        }
+        c = regexEnd;
+        lastSignificant = '/';
+        continue;
+      }
+
       if (ch === '"' || ch === "'" || ch === '`') {
         quote = ch;
         continue;
@@ -78,10 +89,58 @@ export function extractBlock(lines: string[], fromIndex: number): Block | undefi
           return { startLine, endLine: i + 1, text: lines.slice(fromIndex, i + 1).join('\n') };
         }
       }
+
+      // Track last significant character for regex detection.
+      if (!/\s/.test(ch)) {
+        lastSignificant = ch;
+      }
     }
   }
 
   return undefined;
+}
+
+/**
+ * Determines if a `/` at the current position is likely a regex literal start
+ * based on the preceding significant character.
+ */
+function isRegexStart(prev: string | undefined): boolean {
+  if (prev === undefined) return true; // `/` at start of line
+  return /[({,=:\[\!&|?+\-*%~^{};\s]/.test(prev);
+}
+
+/**
+ * Scans forward from the first character after `/` to find the closing `/`
+ * of a regex literal, respecting escapes and character classes.
+ * Returns the index of the closing `/`, or undefined if unterminated.
+ */
+function skipRegex(line: string, startSlash: number): number | undefined {
+  let inClass = false;
+  for (let i = startSlash + 1; i < line.length; i += 1) {
+    const ch = line[i];
+    const prev = line[i - 1];
+
+    if (ch === '\\') {
+      i += 1; // skip the escaped character
+      continue;
+    }
+
+    if (ch === '[' && prev !== '\\') {
+      inClass = true;
+      continue;
+    }
+
+    if (ch === ']' && prev !== '\\' && inClass) {
+      inClass = false;
+      continue;
+    }
+
+    if (ch === '/' && !inClass) {
+      return i; // found the closing /
+    }
+  }
+
+  return undefined; // regex never closed on this line
 }
 
 /**
@@ -100,8 +159,16 @@ export function forEachBlock(
   const lines = file.content.split('\n');
   const hits: Hit[] = [];
 
+  // exec() advances lastIndex on a g/y-flagged regex, so a module-level constant
+  // would silently skip matches between calls. Strip those flags rather than
+  // mutating the caller's regex.
+  const scanner =
+    trigger.global || trigger.sticky
+      ? new RegExp(trigger.source, trigger.flags.replace(/[gy]/g, ''))
+      : trigger;
+
   lines.forEach((line, index) => {
-    const match = trigger.exec(line);
+    const match = scanner.exec(line);
     if (match === null) return;
 
     const block = extractBlock(lines, index);
