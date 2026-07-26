@@ -14,8 +14,8 @@ async function scan(content: string, path = 'app.ts') {
 }
 
 /** The rule ids reported for `content`. */
-async function ids(content: string): Promise<string[]> {
-  return (await scan(content)).map((finding) => finding.message.match(/\[([^\]]+)\]/)?.[1] ?? '');
+async function ids(content: string, path?: string): Promise<string[]> {
+  return (await scan(content, path)).map((finding) => finding.message.match(/\[([^\]]+)\]/)?.[1] ?? '');
 }
 
 describe('agnostic web rules', () => {
@@ -62,5 +62,69 @@ describe('agnostic web rules', () => {
   it('tags findings with the web scanner', async () => {
     const findings = await scan('const r = await fetch(req.query.url);');
     expect(findings[0].scanner).toBe('web');
+  });
+
+  it('flags a request body passed straight into an ORM write', async () => {
+    const content = [
+      'export async function PATCH(req) {',
+      '  const body = await req.json();',
+      '  return prisma.user.update({',
+      '    where: { id },',
+      '    data: body,',
+      '  });',
+      '}'
+    ].join('\n');
+
+    expect(await ids(content)).toContain('agnostic/mass-assignment');
+  });
+
+  it('flags a spread of the request body into an ORM write', async () => {
+    const content = 'const body = await req.json();\nawait prisma.user.update({ data: { ...body } });';
+    expect(await ids(content)).toContain('agnostic/mass-assignment');
+  });
+
+  it('does not flag an ORM write with an explicit field list', async () => {
+    const content = [
+      'const body = await req.json();',
+      'await prisma.user.update({',
+      '  where: { id },',
+      '  data: { name: body.name, bio: body.bio },',
+      '});'
+    ].join('\n');
+
+    expect(await ids(content)).not.toContain('agnostic/mass-assignment');
+  });
+
+  it('does not flag an ORM write whose data comes from a value the server computed', async () => {
+    const content = 'const data = buildUpdate(input);\nawait prisma.user.update({ data });';
+    expect(await ids(content)).not.toContain('agnostic/mass-assignment');
+  });
+
+  it('flags a multi-line CORS config that pairs a wildcard origin with credentials', async () => {
+    const content = ["app.use(cors({", "  origin: '*',", '  credentials: true,', '}));'].join('\n');
+    expect(await ids(content)).toContain('agnostic/cors-wildcard-credentials');
+  });
+
+  it('does not flag a wildcard origin without credentials', async () => {
+    const content = ["app.use(cors({", "  origin: '*',", '}));'].join('\n');
+    expect(await ids(content)).not.toContain('agnostic/cors-wildcard-credentials');
+  });
+
+  it('does not flag credentials with an explicit origin', async () => {
+    const content = ['app.use(cors({', "  origin: 'https://app.example.com',", '  credentials: true,', '}));'].join('\n');
+    expect(await ids(content)).not.toContain('agnostic/cors-wildcard-credentials');
+  });
+
+  it('advises when a login handler has no rate limiting', async () => {
+    const content = 'export async function POST(req) {\n  const body = await req.json();\n  return signIn(body);\n}';
+    const findings = await scan(content, 'app/api/login/route.ts');
+    const rateLimit = findings.find((finding) => finding.message.includes('agnostic/no-rate-limit-on-auth'));
+    expect(rateLimit?.severity).toBe('medium');
+  });
+
+  it('does not flag a login handler that rate limits', async () => {
+    const content =
+      'export async function POST(req) {\n  await limiter.check(req);\n  const body = await req.json();\n  return signIn(body);\n}';
+    expect(await ids(content, 'app/api/login/route.ts')).not.toContain('agnostic/no-rate-limit-on-auth');
   });
 });

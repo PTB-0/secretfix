@@ -1,3 +1,5 @@
+import { forEachBlock } from '../block.js';
+import { requestBoundLocals } from '../verify.js';
 import type { WebRule } from '../types.js';
 
 /**
@@ -9,6 +11,20 @@ import type { WebRule } from '../types.js';
  * parenthesis on the same line, so a multi-line form is skipped rather than
  * mis-reported.
  */
+
+const ORM_WRITE = /\b\w+(?:\.\w+)*\.(?:create|createMany|update|updateMany|upsert)\s*\(/;
+
+/** `data: body`, `data: await req.json()`, `data: { ...body }`, or shorthand `data`. */
+const DATA_ASSIGNMENT = /\bdata\s*:\s*(?:\{\s*\.{3}\s*)?([A-Za-z_$][\w$]*)|\bdata\s*:\s*(?:await\s+)?req(?:uest)?\s*\.\s*(?:body|json\s*\(\s*\))/;
+
+const CORS_TRIGGER = /\bcors\s*\(|Access-Control-Allow-Origin/;
+const WILDCARD_ORIGIN = /(?:origin|Access-Control-Allow-Origin)\s*[:=]\s*['"`]\*['"`]/;
+const CREDENTIALS_ON = /credentials\s*:\s*true|Access-Control-Allow-Credentials\s*[:=]\s*['"`]?true/;
+
+const AUTH_ENDPOINT = /(?:^|\/)(?:login|signin|sign-in|register|signup|sign-up|auth|token|password|reset)(?:\/|$)/i;
+const AUTH_HANDLER = /\b(?:export\s+(?:async\s+)?function\s+(?:POST|PUT)|export\s+const\s+(?:POST|PUT)\s*=|app\.post\s*\()/;
+const RATE_LIMIT_EVIDENCE = /\b(?:rate[-_]?limit\w*|ratelimit\w*|limiter|Ratelimit|throttle|slowDown|Bottleneck)\b/i;
+
 export const AGNOSTIC_RULES: readonly WebRule[] = [
   {
     kind: 'line',
@@ -101,5 +117,59 @@ export const AGNOSTIC_RULES: readonly WebRule[] = [
       /\.(?:send|json)\s*\([^)]*\b(?:err|error|e)\.stack\b|\.json\s*\(\s*\{\s*(?:error|message)\s*:\s*(?:err|error|e)\s*[,\}]/,
     message:
       'The raw error is sent to the caller. Stack traces and driver errors leak file paths, query shapes and library versions that make the next attack easier. Log the error server-side and return a generic message.'
+  },
+  {
+    kind: 'block',
+    id: 'agnostic/mass-assignment',
+    group: 'injection',
+    frameworks: ['agnostic'],
+    severity: 'critical',
+    confidence: 'certain',
+    message:
+      'The whole request body is handed to the database write, so a caller can set any column — including ones you never meant to expose, like isAdmin or credits. List the fields you actually accept.',
+    find: (file) => {
+      const bound = requestBoundLocals(file.content);
+      return forEachBlock(file, ORM_WRITE, (blockText, line) => {
+        const match = DATA_ASSIGNMENT.exec(blockText);
+        if (match === null) return undefined;
+        // A named local counts only when it was bound to the request body;
+        // `data: computedValues` is the server's own object and is fine.
+        const identifier = match[1];
+        if (identifier !== undefined && !bound.has(identifier)) return undefined;
+        return { line };
+      });
+    }
+  },
+  {
+    kind: 'block',
+    id: 'agnostic/cors-wildcard-credentials',
+    group: 'hardening',
+    frameworks: ['agnostic'],
+    severity: 'high',
+    confidence: 'certain',
+    message:
+      'CORS allows every origin and also allows credentials, so any site can make authenticated requests as your logged-in users. Name the origins you trust, or drop credentials.',
+    find: (file) =>
+      forEachBlock(file, CORS_TRIGGER, (blockText, line) =>
+        WILDCARD_ORIGIN.test(blockText) && CREDENTIALS_ON.test(blockText) ? { line } : undefined
+      )
+  },
+  {
+    kind: 'block',
+    id: 'agnostic/no-rate-limit-on-auth',
+    group: 'auth',
+    frameworks: ['agnostic'],
+    severity: 'medium',
+    confidence: 'heuristic',
+    message:
+      'This looks like a sign-in or sign-up handler with no rate limiting, which leaves passwords open to being guessed in bulk. Add a per-IP and per-account limit.',
+    find: (file) => {
+      if (!AUTH_ENDPOINT.test(file.path)) return [];
+      return forEachBlock(file, AUTH_HANDLER, (blockText, line) =>
+        RATE_LIMIT_EVIDENCE.test(blockText) || RATE_LIMIT_EVIDENCE.test(file.content)
+          ? { line, resolved: 'drop' }
+          : { line, resolved: { severity: 'medium' } }
+      );
+    }
   }
 ];
