@@ -22,6 +22,31 @@ function applies(rule: WebRule, context: ScanContext): boolean {
   return rule.frameworks.some((framework) => context.frameworks.has(framework));
 }
 
+/**
+ * True when the line carries nothing but a comment.
+ *
+ * Line rules match a raw line, so without this a commented-out call — or a note
+ * to a colleague that happens to quote one — reports at the rule's full severity
+ * and blocks the commit. That is the false positive most corrosive to a tool that
+ * has to stay quiet to stay installed.
+ *
+ * Deliberately narrow: it judges whole-line comments only. A trailing comment on
+ * a live line (`doThing(); // and req.body here`) still matches, and so does a
+ * pattern inside a string literal. Both need real tokenisation to settle, and
+ * over-reaching here would suppress live code.
+ */
+export function isCommentOnlyLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (trimmed === '') return false;
+  return (
+    trimmed.startsWith('//') ||
+    trimmed.startsWith('--') ||
+    trimmed.startsWith('#') ||
+    trimmed.startsWith('/*') ||
+    trimmed.startsWith('*')
+  );
+}
+
 function hitsFor(rule: WebRule, file: StagedFile, context: ScanContext): Hit[] {
   if (rule.kind === 'file') {
     // A project-scope rule runs only when its own anchor file is staged.
@@ -35,6 +60,7 @@ function hitsFor(rule: WebRule, file: StagedFile, context: ScanContext): Hit[] {
 
   const hits: Hit[] = [];
   file.content.split('\n').forEach((line, index) => {
+    if (isCommentOnlyLine(line)) return;
     if (rule.regex.test(line)) {
       hits.push({ line: index + 1, fix: rule.fix?.(line, index + 1, file) });
     }
