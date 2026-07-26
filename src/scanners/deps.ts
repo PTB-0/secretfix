@@ -25,7 +25,11 @@ export interface DepsScannerDeps {
 
 function defaultRunNpmAudit(cwd: string): NpmAuditJson {
   try {
-    const output = execFileSync('npm', ['audit', '--json'], { cwd, encoding: 'utf8' });
+    const output = execFileSync('npm', ['audit', '--json'], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
     return JSON.parse(output) as NpmAuditJson;
   } catch (err) {
     const execErr = err as { stdout?: string };

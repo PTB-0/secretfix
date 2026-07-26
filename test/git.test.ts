@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,9 @@ import {
   unstageFile,
   readIndexFile
 } from '../src/git.js';
+
+/** The built CLI entry point — pnpm test runs `pnpm build` first, so dist/ is current. */
+const cliPath = join(process.cwd(), 'bin', 'secretfix.js');
 
 let repoDir: string;
 
@@ -174,5 +177,40 @@ describe('git helpers', () => {
 
   it('readIndexFile returns undefined when the file does not exist', () => {
     expect(readIndexFile('nope.txt', repoDir)).toBeUndefined();
+  });
+
+  it('does not leak git\'s "fatal:" probe noise to stderr when package.json/next.config.* are absent', () => {
+    // The web scanner's framework detection probes for files it expects to be
+    // missing in most repos. Piping (not inheriting) stderr in git() is what
+    // keeps that expected failure invisible — assert on the captured string,
+    // not just the exit code, since the exit code can't see this regression.
+    writeFileSync(join(repoDir, 'clean.js'), 'const total = 1 + 1;\n');
+    git(['add', 'clean.js']);
+
+    const result = spawnSync('node', [cliPath, 'scan', '--no-deps'], {
+      cwd: repoDir,
+      encoding: 'utf8',
+      input: ''
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).not.toMatch(/fatal:/);
+  });
+
+  it('does not leak git\'s "could not resolve HEAD" when a fix unstages a file in a repo with no commits', () => {
+    // unstageFile's primary path (`git restore --staged`) fails with no HEAD to
+    // restore to in a brand-new repo, so it falls back to `git rm --cached`. That
+    // expected first failure must not reach the user's terminal either.
+    writeFileSync(join(repoDir, '.env'), 'DATABASE_URL=postgres://u:p@h/db\n');
+    git(['add', '.env']);
+
+    const result = spawnSync('node', [cliPath, 'scan', '--no-deps'], {
+      cwd: repoDir,
+      encoding: 'utf8',
+      input: 'y\n'
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).not.toMatch(/fatal:/);
   });
 });

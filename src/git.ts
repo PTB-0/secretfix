@@ -6,12 +6,21 @@ import type { StagedFile } from './types.js';
 /** Files larger than this are skipped — scanning them is slow and never useful. */
 const MAX_SCANNED_BYTES = 1_000_000;
 
+/**
+ * stderr is piped rather than inherited because several callers (readIndexFile's
+ * probe for a file that may not exist, unstageFile's HEAD-less fallback) run git
+ * commands that are *expected* to fail. Inherited stderr would print git's own
+ * "fatal: ..." on essentially every commit, which reads as tool breakage to
+ * something that lives in a hook and must stay silent until there is a real
+ * finding to report. Piping still lands the message on the thrown error's
+ * `.stderr`, so a caller that wants to log a real failure still can.
+ */
 function git(args: string[], cwd: string): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 function gitBuffer(args: string[], cwd: string): Buffer {
-  return execFileSync('git', args, { cwd, maxBuffer: 64 * 1024 * 1024 });
+  return execFileSync('git', args, { cwd, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 /** Git's own heuristic: a NUL byte near the start means binary. */
