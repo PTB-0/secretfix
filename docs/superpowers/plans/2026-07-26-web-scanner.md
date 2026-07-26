@@ -3751,6 +3751,7 @@ Expected: FAIL — cannot resolve `src/fix/ai.js`.
 ```ts
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type AnthropicSdk from '@anthropic-ai/sdk';
 import type { Finding, FixDescriptor } from '../types.js';
 
 const MODEL = 'claude-opus-5';
@@ -3803,27 +3804,24 @@ interface AiPatch {
  * a refusal returns HTTP 200 with an empty content array.
  */
 const defaultSend: SendFn = async (prompt, system) => {
-  let Anthropic: new () => unknown;
+  let Anthropic: typeof AnthropicSdk;
   try {
-    ({ default: Anthropic } = (await import('@anthropic-ai/sdk')) as { default: new () => unknown });
+    ({ default: Anthropic } = await import('@anthropic-ai/sdk'));
   } catch {
-    console.warn('secretfix: --ai needs @anthropic-ai/sdk — run "pnpm add -D @anthropic-ai/sdk".');
+    console.warn('secretfix: --ai needs @anthropic-ai/sdk — run "pnpm add -O @anthropic-ai/sdk".');
     return undefined;
   }
 
   // The SDK resolves credentials itself: ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN,
   // then an `ant auth login` profile on disk. An unset env var does not mean
   // there are no credentials, so construct the client and let it decide.
-  const client = new Anthropic() as {
-    beta: {
-      messages: {
-        create(request: Record<string, unknown>): Promise<AiMessage>;
-      };
-    };
-  };
+  const client = new Anthropic();
 
   try {
-    return await client.beta.messages.create({
+    // `fallbacks` and `output_config.format` are beta fields the SDK's typings
+    // lag behind, so the request object is asserted rather than inferred. Keep
+    // this the only assertion in the file, and drop it once the types land.
+    const request = {
       model: MODEL,
       max_tokens: 2048,
       betas: ['server-side-fallback-2026-07-01'],
@@ -3831,7 +3829,9 @@ const defaultSend: SendFn = async (prompt, system) => {
       output_config: { effort: 'low', format: { type: 'json_schema', schema: PATCH_SCHEMA } },
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: prompt }]
-    });
+    } as unknown as Parameters<typeof client.beta.messages.create>[0];
+
+    return (await client.beta.messages.create(request)) as AiMessage;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`secretfix: --ai request failed — ${message}`);
@@ -3984,6 +3984,8 @@ In `package.json`, after `devDependencies`:
 ```
 
 It is optional and dynamically imported, so `npx secretfix` stays light for everyone who never passes `--ai`.
+
+Note the tradeoff this creates: `ai.ts` uses `import type AnthropicSdk from '@anthropic-ai/sdk'`, so `tsc` needs the package present. pnpm installs optional dependencies by default, and consumers install `dist/` rather than building, so this is fine — but a CI job running `pnpm install --no-optional` would fail the build. If that ever becomes a constraint, drop the type import and assert the constructor instead.
 
 - [ ] **Step 8: Run the full suite**
 
