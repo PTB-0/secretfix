@@ -14,12 +14,15 @@ export interface Block {
  * line index), balancing braces while ignoring any that sit inside a string,
  * template literal, comment, or regex literal.
  *
- * Returns undefined when the region never closes, when there is no brace at
- * all, when a regex literal is unterminated, or when an ambiguous `/` has two
- * possible readings (division vs. regex) that would produce different brace or
- * quote accounting. An ambiguous slash whose readings disagree causes the whole
- * extraction to bail. Callers treat that as "no evidence" and skip the rule for
- * that file — an unparseable region must never manufacture a finding.
+ * A `/` is treated as a regex literal start only after characters that make it
+ * unambiguous (operators, start of line). For any `/` after other characters,
+ * a divergence check looks ahead for a second `/`. If found and the span between
+ * contains `{`, `}`, `'`, `"`, or backtick, the two possible readings (division
+ * vs. regex) would produce different brace or quote accounting, so extraction bails.
+ *
+ * Returns undefined for unterminated blocks, missing braces, or unresolvable
+ * ambiguity. Callers treat that as "no evidence" and skip the rule for that
+ * file — an unparseable region must never manufacture a finding.
  */
 export function extractBlock(lines: string[], fromIndex: number): Block | undefined {
   let depth = 0;
@@ -65,9 +68,7 @@ export function extractBlock(lines: string[], fromIndex: number): Block | undefi
 
       // Detect regex literal vs. division operator.
       if (ch === '/' && next !== '/' && next !== '*') {
-        const classification = classifySlash(lastSignificant);
-
-        if (classification === 'unambiguous') {
+        if (startsRegexUnambiguously(lastSignificant)) {
           // Definitely a regex literal.
           const regexEnd = skipRegex(line, c);
           if (regexEnd === undefined) {
@@ -78,17 +79,13 @@ export function extractBlock(lines: string[], fromIndex: number): Block | undefi
           continue;
         }
 
-        if (classification === 'ambiguous') {
-          // The slash could be division or regex. Look ahead to see if the two
-          // interpretations would produce different brace/quote accounting.
-          // If they would, we cannot safely proceed — bail.
-          const diverges = interpretationsDiverge(line, c);
-          if (diverges) {
-            return undefined; // ambiguous and divergent — cannot parse safely
-          }
-          // Otherwise, the interpretations agree on accounting, so treating it as
-          // division (not skipping characters) is safe.
+        // For everything else, check if the two interpretations would produce
+        // different brace/quote accounting. If so, we cannot safely proceed.
+        const diverges = interpretationsDiverge(line, c);
+        if (diverges) {
+          return undefined; // unresolvable ambiguity — cannot parse safely
         }
+        // Otherwise, continue as division (ordinary source character).
       }
 
       if (ch === '"' || ch === "'" || ch === '`') {
@@ -120,29 +117,17 @@ export function extractBlock(lines: string[], fromIndex: number): Block | undefi
 }
 
 /**
- * Determines if a `/` at the current position is likely a regex literal start
- * based on the preceding significant character.
- *
- * Returns `'unambiguous'` if this is definitely a regex, `'division'` if definitely
- * division, or `'ambiguous'` if it could be either and needs further analysis.
+ * Determines if a `/` is unambiguously the start of a regex literal based on
+ * the preceding significant character. True only when `/` appears at the start
+ * of a line or after characters that cannot be followed by division.
  */
-function classifySlash(prev: string | undefined): 'unambiguous' | 'division' | 'ambiguous' {
-  if (prev === undefined) return 'unambiguous'; // `/` at start of line is regex
+function startsRegexUnambiguously(prev: string | undefined): boolean {
+  if (prev === undefined) return true; // `/` at start of line is regex
 
   // Characters that can only be followed by a regex (unambiguous).
   // Note: `>` is safe here because `a > /x/` is unambiguous (no division operator
   // can follow `>`), and `=>` always precedes a regex in arrow functions.
-  if (/[({,=:\[\!&|?+\-*%~^{}>;]/.test(prev)) return 'unambiguous';
-
-  // Characters that can definitely only be followed by division (unambiguous).
-  // Identifier characters and digits after a number or identifier mean division.
-  if (/[\]\w]/.test(prev)) return 'division';
-
-  // `)` is genuinely ambiguous: could be `(a+b) / 2` (division) or
-  // `if(cond) /regex/` (regex). Must analyze further.
-  if (prev === ')') return 'ambiguous';
-
-  return 'ambiguous'; // default to ambiguous for safety
+  return /[({,=:\[\!&|?+\-*%~^{}>;]/.test(prev);
 }
 
 /**

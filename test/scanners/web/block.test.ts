@@ -70,17 +70,21 @@ describe('extractBlock', () => {
     expect(extractBlock(['function f() {', '  arr.filter(x => /}/.test(x));', '  return 1;', '}'], 0)?.endLine).toBe(4);
   });
 
-  it('returns undefined for an ambiguous slash when interpretations diverge', () => {
-    expect(extractBlock(['function handler(req) {', '  if (isSpecial) /}/.test(req.query);', '  realCode();', '}'], 0)).toBeUndefined();
+  it('returns undefined when a keyword-prefixed regex has braces between slashes', () => {
+    expect(extractBlock(['function f() {', '  if (x) return /}/.test(s);', '  realCode();', '}'], 0)).toBeUndefined();
   });
 
-  it('does not mistake division for a regex when interpretations agree', () => {
-    const lines = ['function f() {', '  const half = total / 2;', '  return half;', '}'];
+  it('returns undefined for ambiguous "in" operator followed by regex with braces', () => {
+    expect(extractBlock(['function f() {', '  const y = z in /}/.test(w) ? 1 : 2;', '  return y;', '}'], 0)).toBeUndefined();
+  });
+
+  it('slices a full block when division has no second slash on the line', () => {
+    const lines = ['function f() {', '  const n = total / count;', '  return n;', '}'];
     expect(extractBlock(lines, 0)?.endLine).toBe(4);
   });
 
-  it('handles multiple divisions with no problematic characters between slashes', () => {
-    const lines = ['function f() {', '  const r = (a + b) / 2 + c / 3;', '  return r;', '}'];
+  it('slices a full block for keyword-prefixed division without a second slash', () => {
+    const lines = ['function f() {', '  if (ok) return a / b;', '  realCode();', '}'];
     expect(extractBlock(lines, 0)?.endLine).toBe(4);
   });
 
