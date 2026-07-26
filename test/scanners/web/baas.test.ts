@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createWebScanner } from '../../../src/scanners/web/index.js';
 import { BAAS_RULES } from '../../../src/scanners/web/rules/baas.js';
-import type { ScanContext } from '../../../src/scanners/web/types.js';
+import type { Framework, ScanContext } from '../../../src/scanners/web/types.js';
 
 const context: ScanContext = {
   cwd: '/repo',
@@ -11,6 +11,16 @@ const context: ScanContext = {
 
 async function ids(content: string, path: string): Promise<string[]> {
   const findings = await createWebScanner(context, BAAS_RULES).scan([{ path, content }]);
+  return findings.map((f) => f.message.match(/\[([^\]]+)\]/)?.[1] ?? '');
+}
+
+function contextWithFrameworks(frameworks: readonly Framework[]): ScanContext {
+  return { cwd: '/repo', frameworks: new Set(frameworks), readRepoFile: () => undefined };
+}
+
+/** Runs the full catalogue (not just BAAS_RULES) so a dedup between neighbouring rules is visible as a count. */
+async function fullCatalogueIds(content: string, path: string, frameworks: readonly Framework[]): Promise<string[]> {
+  const findings = await createWebScanner(contextWithFrameworks(frameworks)).scan([{ path, content }]);
   return findings.map((f) => f.message.match(/\[([^\]]+)\]/)?.[1] ?? '');
 }
 
@@ -25,7 +35,8 @@ describe('BaaS web rules', () => {
 
   it.each([
     ['an authenticated rule', 'allow read, write: if request.auth != null;'],
-    ['an owner-scoped rule', 'allow write: if request.auth.uid == userId;']
+    ['an owner-scoped rule', 'allow write: if request.auth.uid == userId;'],
+    ['a true condition further qualified by another check', 'allow read: if true == false;']
   ])('does not flag %s', async (_label, content) => {
     expect(await ids(content, 'firestore.rules')).not.toContain('baas/firebase-rules-open');
   });
@@ -57,5 +68,25 @@ describe('BaaS web rules', () => {
   it('leaves a client component to the Next.js rule, so it is reported once', async () => {
     const content = "'use client';\nconst k = process.env.SUPABASE_SERVICE_ROLE_KEY;";
     expect(await ids(content, 'app/page.tsx')).not.toContain('baas/service-role-key-exposed');
+  });
+
+  describe('overlap with nextjs/public-env-secret', () => {
+    it('yields the NEXT_PUBLIC_ case to the Next.js rule when Next.js is detected, so it is reported once', async () => {
+      const found = await fullCatalogueIds('NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=eyJ', '.env', ['agnostic', 'nextjs']);
+      expect(found).toEqual(['nextjs/public-env-secret']);
+    });
+
+    it('reports the NEXT_PUBLIC_ case itself when Next.js is not detected, so it is still reported once', async () => {
+      const found = await fullCatalogueIds('NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=eyJ', '.env', ['agnostic']);
+      expect(found).toEqual(['baas/service-role-key-exposed']);
+    });
+
+    it.each([
+      ['with Next.js detected', ['agnostic', 'nextjs']],
+      ['without Next.js detected', ['agnostic']]
+    ] as const)('still flags a Vite-prefixed service role key %s', async (_label, frameworks) => {
+      const found = await fullCatalogueIds('VITE_SUPABASE_SERVICE_ROLE_KEY=eyJ', '.env', frameworks);
+      expect(found).toContain('baas/service-role-key-exposed');
+    });
   });
 });

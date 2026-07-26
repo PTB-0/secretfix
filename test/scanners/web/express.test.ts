@@ -72,6 +72,18 @@ describe('Express web rules', () => {
     expect(await ids(content)).not.toContain('express/route-no-auth');
   });
 
+  // The global-middleware check is file-wide rather than positional, so a route
+  // registered above app.use(requireAuth) is suppressed here even though Express
+  // itself would not have protected it yet at that point in the file. That is the
+  // same "absence of evidence must not manufacture a blocking finding" direction
+  // this whole rule set deliberately favors, so the behaviour is being pinned, not
+  // fixed — this test documents a known limitation rather than a bug.
+  it('does not flag a route mounted before its auth middleware (known limitation: the check is file-wide, not positional)', async () => {
+    const content =
+      "app.post('/api/notes', async (req, res) => {\n  res.json(await save(req.body));\n});\napp.use(requireAuth);";
+    expect(await ids(content)).not.toContain('express/route-no-auth');
+  });
+
   it('advises a cookie-session app with a state-changing route and no CSRF protection', async () => {
     const content = [
       "const session = require('express-session');",
