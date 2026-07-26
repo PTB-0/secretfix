@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   hasAuthEvidence,
   hasRiskSignal,
+  matcherCovers,
   requestBoundLocals,
   resolveAuth,
   routePathFor
@@ -110,6 +111,27 @@ describe('hasAuthEvidence', () => {
       expect(() => hasAuthEvidence('return ok();', 'app/api/admin/users/route.ts', context)).not.toThrow();
       expect(hasAuthEvidence('return ok();', 'app/api/admin/users/route.ts', context)).toBe(true);
     });
+  });
+});
+
+describe('matcherCovers', () => {
+  // `:path*` is zero-or-more segments in path-to-regexp, so the segment and its
+  // leading slash are both optional — a bare prefix must count as covered, not
+  // just prefix-plus-something. Every prior assertion paired `:path*` with a route
+  // that had a subpath, so this exact gap slipped through Task 5 untested.
+  it('a wildcard segment covers the bare prefix as well as a subpath', () => {
+    expect(matcherCovers(['/admin/:path*'], '/admin')).toBe(true);
+    expect(matcherCovers(['/admin/:path*'], '/admin/users')).toBe(true);
+  });
+
+  it('a wildcard segment covers the bare prefix and a subpath, and still excludes an unrelated path', () => {
+    expect(matcherCovers(['/api/admin/:path*'], '/api/admin')).toBe(true);
+    expect(matcherCovers(['/api/admin/:path*'], '/api/admin/users')).toBe(true);
+    expect(matcherCovers(['/api/admin/:path*'], '/dashboard')).toBe(false);
+  });
+
+  it('a single dynamic segment is exactly one segment, not zero-or-more, so it does not cover the bare prefix', () => {
+    expect(matcherCovers(['/api/admin/:id'], '/api/admin')).toBe(false);
   });
 });
 

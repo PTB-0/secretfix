@@ -43,6 +43,13 @@ export function routePathFor(filePath: string): string {
 const PATH_STYLE_MATCHER = /^[\w\-./:*]*$/;
 
 /**
+ * Stands in for a wildcard until the very end. Emitting `.*` mid-chain lets a
+ * later step re-expand its `*`, which is how `/admin/:path*` used to compile to
+ * `^/admin/..*$` and stop covering `/admin` at all.
+ */
+const WILDCARD = '\0';
+
+/**
  * Next.js accepts two matcher dialects: path-to-regexp (`/api/admin/:path*`) and a
  * literal regex string (`/((?!api|_next/static).*)`, its own default). Escaping the
  * second dialect would make it match nothing, and a matcher that matches nothing
@@ -63,10 +70,39 @@ function matcherToRegex(matcher: string): RegExp {
   const escaped = matcher
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/\\\[[^\]]*\\\]/g, '[^/]+')
-    .replace(/:\w+\*/g, '.*')
+    // `/:param*` is zero or more segments, so the slash is optional: this pattern
+    // has to cover the bare prefix (`/admin`) as well as `/admin/a/b`.
+    .replace(/\/:\w+\*/g, `(?:/${WILDCARD})?`)
+    .replace(/:\w+\*/g, WILDCARD)
     .replace(/:\w+/g, '[^/]+')
-    .replace(/\*/g, '.*');
+    .replace(/\*/g, WILDCARD)
+    .split(WILDCARD)
+    .join('.*');
   return new RegExp(`^${escaped}$`);
+}
+
+/**
+ * Extracts the string literals inside a `matcher: [...]` or `matcher: '...'` config
+ * block from raw file content. Exported because two callers need it: middleware
+ * coverage here, and the standalone matcher-gap rule, which reads the same shape
+ * out of the staged middleware file rather than a file `readRepoFile` fetches.
+ * Undefined means no matcher config was found at all — distinct from an empty
+ * array — which callers read as "runs on every request."
+ */
+export function matcherPatterns(content: string): string[] | undefined {
+  const matcherBlock = /matcher\s*:\s*(\[[^\]]*\]|['"][^'"]*['"])/.exec(content);
+  if (matcherBlock === null) return undefined;
+  return [...matcherBlock[1].matchAll(/['"]([^'"]+)['"]/g)].map((match) => match[1]);
+}
+
+/**
+ * True when any matcher pattern — in either Next.js dialect, see matcherToRegex
+ * above — matches `path`. Exported alongside matcherPatterns so a rule outside
+ * this module never has to re-implement matcher semantics to answer "does this
+ * middleware cover that route."
+ */
+export function matcherCovers(patterns: readonly string[], path: string): boolean {
+  return patterns.some((pattern) => matcherToRegex(pattern).test(path));
 }
 
 function middlewareCovers(routePath: string, context: ScanContext): boolean {
@@ -74,14 +110,11 @@ function middlewareCovers(routePath: string, context: ScanContext): boolean {
     const content = context.readRepoFile(file);
     if (content === undefined) continue;
 
-    const matcherBlock = /matcher\s*:\s*(\[[^\]]*\]|['"][^'"]*['"])/.exec(content);
-    if (matcherBlock === null) {
-      // Middleware with no matcher runs on every request, so it covers this route.
-      return true;
-    }
+    const patterns = matcherPatterns(content);
+    // Middleware with no matcher runs on every request, so it covers this route.
+    if (patterns === undefined) return true;
 
-    const patterns = [...matcherBlock[1].matchAll(/['"]([^'"]+)['"]/g)].map((match) => match[1]);
-    if (patterns.some((pattern) => matcherToRegex(pattern).test(routePath))) return true;
+    if (matcherCovers(patterns, routePath)) return true;
   }
   return false;
 }

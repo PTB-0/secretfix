@@ -1,8 +1,9 @@
 import type { Finding, Scanner, Severity, StagedFile } from '../../types.js';
 import type { Hit, ScanContext, WebRule } from './types.js';
 import { AGNOSTIC_RULES } from './rules/agnostic.js';
+import { NEXTJS_RULES } from './rules/nextjs.js';
 
-export const ALL_RULES: readonly WebRule[] = [...AGNOSTIC_RULES];
+export const ALL_RULES: readonly WebRule[] = [...AGNOSTIC_RULES, ...NEXTJS_RULES];
 
 /**
  * Where an uncorroborated heuristic finding lands. With the default failOn of
