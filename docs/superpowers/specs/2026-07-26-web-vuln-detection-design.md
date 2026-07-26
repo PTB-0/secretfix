@@ -130,8 +130,8 @@ src/report.ts       --json report for agent handoff (§7)
 ### 2.1 `ScanContext`
 
 Web rules need to read outside the staged set (`package.json` for framework detection,
-`middleware.ts` for auth verification), so the `Scanner` interface gains a second
-parameter:
+`middleware.ts` for auth verification). Rather than widen the shared `Scanner` interface,
+the context is injected by **closure**: the web scanner is a factory.
 
 ```ts
 export type Framework = 'agnostic' | 'nextjs' | 'express' | 'supabase' | 'firebase';
@@ -143,15 +143,23 @@ export interface ScanContext {
   readRepoFile(path: string): string | undefined;
 }
 
-export interface Scanner {
-  name: string;
-  scan(stagedFiles: StagedFile[], context: ScanContext): Promise<Finding[]>;
-}
+export function createWebScanner(context: ScanContext): Scanner;
 ```
 
-The three existing scanners are **not modified**: in TypeScript a function declared with
-fewer parameters satisfies a type requiring more, so `scan(stagedFiles)` remains valid.
-`runScanners` builds the context once and passes it to every scanner.
+`types.ts`'s `Scanner` interface, `orchestrator.ts`, and all three existing scanners are
+therefore **completely untouched**, as are the 25 direct `.scan(files)` call sites in the
+existing tests. Only `selectScanners` changes, gaining the context so it can build the
+web scanner:
+
+```ts
+function selectScanners(config: SecretFixConfig, context: ScanContext): Scanner[]
+```
+
+An earlier draft of this spec widened `Scanner.scan` to take the context as a second
+parameter. That was rejected during planning: it would have made every existing
+one-argument `.scan(files)` test call a type error (25 of them), and it forces a
+context-shaped parameter onto three scanners that have no use for it. Constructor
+injection is the smaller and more honest change.
 
 `readRepoFile` reads **the index first** (`git show :path`, the same path
 `getStagedFiles` already uses), falling back to the working tree. The index is the
@@ -208,10 +216,20 @@ interface FileRule  extends RuleBase { kind: 'file';  appliesTo: RegExp; check: 
 
 The 26 rules split as:
 
-- **`BlockRule` (6)** — 5, 11, 14, 15, 22, 23. These need a function body in view.
+- **`BlockRule` (7)** — 5, 10, 11, 14, 15, 22, 23. These need a brace-delimited region in
+  view, because the evidence is routinely spread over several lines: a request body bound
+  to a local before the ORM write (5), a multi-line `cors({ ... })` options object (10),
+  a handler body with no auth call anywhere in it (11, 14, 15, 22, 23).
 - **`FileRule` (3)** — 16, 17, 21. These describe a config file as a whole and carry
   `scope: 'file'`.
-- **`LineRule` (17)** — everything else: pure data, one regex plus a message.
+- **`LineRule` (16)** — everything else: pure data, one regex plus a message.
+
+Because scanning is line-by-line, a `LineRule` regex only ever sees one line. Rules whose
+evidence *can* span lines are therefore either promoted to `BlockRule` (above) or written
+to match single-line forms only, so a multi-line occurrence is skipped rather than
+mis-reported. Rule 8 (`insecure-cookie`) is the deliberate example: its regex requires the
+call's closing parenthesis on the same line, so a multi-line options object produces no
+finding instead of a false one.
 
 Adding a rule means adding an object to an array; the engine does not change.
 
