@@ -58,6 +58,59 @@ describe('hasAuthEvidence', () => {
   it('rejects when there is no middleware file', () => {
     expect(hasAuthEvidence('return ok();', 'app/api/admin/users/route.ts', contextWith())).toBe(false);
   });
+
+  describe('middleware matcher dialects', () => {
+    // Next.js accepts a literal-regex matcher as well as path-to-regexp. Escaping
+    // it like a path-to-regexp string would mangle it into matching nothing, which
+    // silently turns every route it actually covers into a blocked commit.
+    it("covers a route under Next.js's own default regex-dialect matcher, and rejects the prefix it excludes", () => {
+      const middleware =
+        "export const config = { matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'] };";
+      const context = contextWith({ 'middleware.ts': middleware });
+      expect(hasAuthEvidence('return ok();', 'app/dashboard/route.ts', context)).toBe(true);
+      expect(hasAuthEvidence('return ok();', 'app/api/admin/users/route.ts', context)).toBe(false);
+    });
+
+    it('covers routes under an alternation regex-dialect matcher, and rejects a path outside the alternation', () => {
+      const middleware = "export const config = { matcher: ['/(api|trpc)(.*)'] };";
+      const context = contextWith({ 'middleware.ts': middleware });
+      expect(hasAuthEvidence('return ok();', 'app/api/foo/route.ts', context)).toBe(true);
+      expect(hasAuthEvidence('return ok();', 'app/trpc/bar/route.ts', context)).toBe(true);
+      expect(hasAuthEvidence('return ok();', 'app/dashboard/route.ts', context)).toBe(false);
+    });
+
+    it('still handles the path-to-regexp dialect: a single dynamic segment', () => {
+      const middleware = "export const config = { matcher: ['/api/admin/:id'] };";
+      const context = contextWith({ 'middleware.ts': middleware });
+      expect(hasAuthEvidence('return ok();', 'app/api/admin/users/route.ts', context)).toBe(true);
+    });
+
+    it('still handles the path-to-regexp dialect: a wildcard segment', () => {
+      const middleware = "export const config = { matcher: ['/api/admin/:path*'] };";
+      const context = contextWith({ 'middleware.ts': middleware });
+      expect(hasAuthEvidence('return ok();', 'app/api/admin/users/route.ts', context)).toBe(true);
+    });
+
+    it('still handles the path-to-regexp dialect: a plain literal path', () => {
+      const middleware = "export const config = { matcher: ['/dashboard'] };";
+      const context = contextWith({ 'middleware.ts': middleware });
+      expect(hasAuthEvidence('return ok();', 'app/dashboard/route.ts', context)).toBe(true);
+    });
+
+    it('still handles the path-to-regexp dialect: the root path matches only the root, not every path', () => {
+      const middleware = "export const config = { matcher: ['/'] };";
+      const context = contextWith({ 'middleware.ts': middleware });
+      expect(hasAuthEvidence('return ok();', 'app/dashboard/route.ts', context)).toBe(false);
+      expect(hasAuthEvidence('return ok();', 'app/api/admin/users/route.ts', context)).toBe(false);
+    });
+
+    it('treats a syntactically invalid regex-dialect matcher as covering everything, rather than throwing', () => {
+      const middleware = "export const config = { matcher: ['/[unclosed'] };";
+      const context = contextWith({ 'middleware.ts': middleware });
+      expect(() => hasAuthEvidence('return ok();', 'app/api/admin/users/route.ts', context)).not.toThrow();
+      expect(hasAuthEvidence('return ok();', 'app/api/admin/users/route.ts', context)).toBe(true);
+    });
+  });
 });
 
 describe('hasRiskSignal', () => {

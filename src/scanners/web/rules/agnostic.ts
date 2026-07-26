@@ -14,8 +14,16 @@ import type { WebRule } from '../types.js';
 
 const ORM_WRITE = /\b\w+(?:\.\w+)*\.(?:create|createMany|update|updateMany|upsert)\s*\(/;
 
-/** `data: body`, `data: await req.json()`, `data: { ...body }`, or shorthand `data`. */
-const DATA_ASSIGNMENT = /\bdata\s*:\s*(?:\{\s*\.{3}\s*)?([A-Za-z_$][\w$]*)|\bdata\s*:\s*(?:await\s+)?req(?:uest)?\s*\.\s*(?:body|json\s*\(\s*\))/;
+/**
+ * `data: req.body` / `data: await req.json()` first, so the identifier alternative
+ * cannot swallow `req` out of a dotted expression and then dismiss it for not being
+ * a request-bound local. The identifier alternative requires the name to end there,
+ * so `data: body.name` — an explicit single field, which is safe — does not match.
+ * (Shorthand `data` alone, i.e. `{ where, data }`, is a real shape but out of scope
+ * here: the regex requires a literal colon, so it is a known gap, not a claim.)
+ */
+const DATA_ASSIGNMENT =
+  /\bdata\s*:\s*(?:await\s+)?req(?:uest)?\s*\.\s*(?:body\b|json\s*\(\s*\))|\bdata\s*:\s*(?:\{\s*\.{3}\s*)?([A-Za-z_$][\w$]*)\s*(?=[,}\s])/;
 
 const CORS_TRIGGER = /\bcors\s*\(|Access-Control-Allow-Origin/;
 const WILDCARD_ORIGIN = /(?:origin|Access-Control-Allow-Origin)\s*[:=]\s*['"`]\*['"`]/;

@@ -95,6 +95,19 @@ describe('agnostic web rules', () => {
     expect(await ids(content)).not.toContain('agnostic/mass-assignment');
   });
 
+  it.each([
+    ['data: req.body', 'await prisma.user.update({ data: req.body });'],
+    ['data: await req.json()', 'await prisma.user.update({ data: await req.json() });'],
+    ['data: request.body', 'await prisma.user.update({ data: request.body });']
+  ])('flags the request body passed directly as %s, with no intermediate local', async (_label, content) => {
+    expect(await ids(content)).toContain('agnostic/mass-assignment');
+  });
+
+  it('does not flag an explicit single field read off the request body', async () => {
+    const content = 'const body = await req.json();\nawait prisma.user.update({ data: body.name });';
+    expect(await ids(content)).not.toContain('agnostic/mass-assignment');
+  });
+
   it('does not flag an ORM write whose data comes from a value the server computed', async () => {
     const content = 'const data = buildUpdate(input);\nawait prisma.user.update({ data });';
     expect(await ids(content)).not.toContain('agnostic/mass-assignment');

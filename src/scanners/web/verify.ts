@@ -10,7 +10,7 @@ const AUTH_CALLS =
   /\b(?:auth|getServerSession|getSession|requireAuth|requireUser|requireSession|currentUser|getCurrentUser|verifyToken|verifyJwt|getToken|authorize|isAuthenticated)\s*\(|\bsession\s*\??\.\s*user\b|\bsupabase\s*\.\s*auth\s*\.\s*getUser\b|\bclerkClient\b/;
 
 /** `export const POST = withAuth(...)` and friends. */
-const AUTH_WRAPPER = /=\s*(?:with[A-Z]\w*|require[A-Z]\w*|protected?|authed?|guard)\s*\(/;
+const AUTH_WRAPPER = /=\s*(?:with[A-Z]\w*|require[A-Z]\w*|protected?|authed?|guard\w*)\s*\(/;
 
 /** A write is a risk signal: an unauthenticated read is bad, an unauthenticated write is worse. */
 const WRITE_CALLS =
@@ -39,8 +39,27 @@ export function routePathFor(filePath: string): string {
   return `/${path}`.replace(/\/{2,}/g, '/');
 }
 
-/** Turns a Next.js middleware matcher into a regex over URL paths. */
+/** Path-to-regexp style uses only these; anything else means the author wrote a regex. */
+const PATH_STYLE_MATCHER = /^[\w\-./:*]*$/;
+
+/**
+ * Next.js accepts two matcher dialects: path-to-regexp (`/api/admin/:path*`) and a
+ * literal regex string (`/((?!api|_next/static).*)`, its own default). Escaping the
+ * second dialect would make it match nothing, and a matcher that matches nothing
+ * reads as "middleware protects no routes" — which turns an advisory into a blocked
+ * commit on correctly authenticated code.
+ */
 function matcherToRegex(matcher: string): RegExp {
+  if (!PATH_STYLE_MATCHER.test(matcher)) {
+    try {
+      return new RegExp(`^${matcher}$`);
+    } catch {
+      // An unparseable matcher is not evidence of anything. Cover everything, so
+      // the finding is dropped rather than raised on a guess.
+      return /.*/;
+    }
+  }
+
   const escaped = matcher
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/\\\[[^\]]*\\\]/g, '[^/]+')
