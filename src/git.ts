@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { StagedFile } from './types.js';
 
 /** Files larger than this are skipped — scanning them is slow and never useful. */
@@ -99,5 +101,28 @@ export function unstageFile(path: string, cwd: string): void {
     git(['restore', '--staged', '--', path], cwd);
   } catch {
     git(['rm', '--cached', '--force', '--quiet', '--', path], cwd);
+  }
+}
+
+/**
+ * Reads a repo file as it will be committed: the index first, then the working
+ * tree for a file git does not track. The index is the correct source for a
+ * verification read — the question is whether the *committed* code has an auth
+ * check, not whether an unstaged edit does.
+ */
+export function readIndexFile(path: string, cwd: string): string | undefined {
+  try {
+    const buffer = gitBuffer(['show', `:${path}`], cwd);
+    if (buffer.byteLength > MAX_SCANNED_BYTES || isBinary(buffer)) return undefined;
+    return buffer.toString('utf8');
+  } catch {
+    // Not in the index; fall through to the working tree.
+  }
+
+  const full = join(cwd, path);
+  try {
+    return existsSync(full) ? readFileSync(full, 'utf8') : undefined;
+  } catch {
+    return undefined;
   }
 }

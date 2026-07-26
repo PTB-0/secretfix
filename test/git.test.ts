@@ -3,7 +3,14 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { getStagedFilePaths, getStagedFiles, getStagedAddedLines, restageFile, unstageFile } from '../src/git.js';
+import {
+  getStagedFilePaths,
+  getStagedFiles,
+  getStagedAddedLines,
+  restageFile,
+  unstageFile,
+  readIndexFile
+} from '../src/git.js';
 
 let repoDir: string;
 
@@ -149,5 +156,23 @@ describe('git helpers', () => {
 
     const [file] = getStagedFiles(repoDir);
     expect(file.content).toBe('spaced');
+  });
+
+  it('readIndexFile prefers the staged content over the working tree', () => {
+    writeFileSync(join(repoDir, 'a.txt'), 'staged\n');
+    git(['add', 'a.txt']);
+    writeFileSync(join(repoDir, 'a.txt'), 'unstaged\n');
+
+    expect(readIndexFile('a.txt', repoDir)).toBe('staged\n');
+  });
+
+  it('readIndexFile falls back to the working tree for an untracked file', () => {
+    writeFileSync(join(repoDir, 'b.txt'), 'loose\n');
+
+    expect(readIndexFile('b.txt', repoDir)).toBe('loose\n');
+  });
+
+  it('readIndexFile returns undefined when the file does not exist', () => {
+    expect(readIndexFile('nope.txt', repoDir)).toBeUndefined();
   });
 });

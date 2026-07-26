@@ -8,7 +8,7 @@ export type FixDescriptor =
   | { kind: 'unstage-file'; file: string };
 
 export interface Finding {
-  scanner: 'secrets' | 'owasp' | 'deps';
+  scanner: 'secrets' | 'owasp' | 'deps' | 'web';
   severity: Severity;
   file: string;
   line: number;
