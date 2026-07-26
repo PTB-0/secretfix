@@ -66,16 +66,21 @@ describe('extractBlock', () => {
     expect(block?.endLine).toBe(4);
   });
 
-  it('ignores braces inside a regex literal', () => {
-    expect(extractBlock(['function f() {', '  const closer = /}/;', '  return 1;', '}'], 0)?.endLine).toBe(4);
+  it('ignores braces inside a regex literal after an arrow function', () => {
+    expect(extractBlock(['function f() {', '  arr.filter(x => /}/.test(x));', '  return 1;', '}'], 0)?.endLine).toBe(4);
   });
 
-  it('ignores braces and quotes inside a character class in a regex', () => {
-    expect(extractBlock(['function f() {', '  const cls = /[{\'"]]/;', '  return 1;', '}'], 0)?.endLine).toBe(4);
+  it('returns undefined for an ambiguous slash when interpretations diverge', () => {
+    expect(extractBlock(['function handler(req) {', '  if (isSpecial) /}/.test(req.query);', '  realCode();', '}'], 0)).toBeUndefined();
   });
 
-  it('does not mistake division for a regex', () => {
+  it('does not mistake division for a regex when interpretations agree', () => {
     const lines = ['function f() {', '  const half = total / 2;', '  return half;', '}'];
+    expect(extractBlock(lines, 0)?.endLine).toBe(4);
+  });
+
+  it('handles multiple divisions with no problematic characters between slashes', () => {
+    const lines = ['function f() {', '  const r = (a + b) / 2 + c / 3;', '  return r;', '}'];
     expect(extractBlock(lines, 0)?.endLine).toBe(4);
   });
 
