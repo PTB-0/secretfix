@@ -29,6 +29,20 @@ const SQL_FILE = /\.sql$/i;
 const HASH_COMMENT_FILE = /(?:^|\/)\.env(?:\.[\w.-]+)?$|\.ya?ml$/i;
 
 /**
+ * True when `rest` holds nothing but whitespace and block comments.
+ *
+ * Reasoning about a single close position cannot answer this: the text after the
+ * first `*​/` may be another comment, and the text after the last one may be code
+ * with a comment on either side. So remove the comments and look at what is left.
+ */
+function hasNoLiveCode(rest: string): boolean {
+  const withoutClosed = rest.replace(/\/\*[\s\S]*?\*\//g, '');
+  // An unclosed `/*` runs to the end of the line, so nothing after it is code.
+  const open = withoutClosed.indexOf('/*');
+  return (open === -1 ? withoutClosed : withoutClosed.slice(0, open)).trim() === '';
+}
+
+/**
  * True when the line cannot contain live code.
  *
  * Line rules match a raw line, so without this a commented-out call — or a note
@@ -52,11 +66,15 @@ export function isCommentOnlyLine(line: string, path: string): boolean {
   // `//` runs to end-of-line in every language this scanner reads.
   if (trimmed.startsWith('//')) return true;
 
-  // A block comment leaves the line inert only if it does not close and hand back
-  // to code. `/* note */ fs.readFile(req.query.f)` is live, dangerous, and common.
-  if (trimmed.startsWith('/*') || trimmed.startsWith('*')) {
+  // A continuation line sits inside a block comment, so it is inert unless it
+  // closes the comment and hands back to code on the same line.
+  if (trimmed.startsWith('*') && !trimmed.startsWith('/*')) {
     const close = trimmed.indexOf('*/');
-    return close === -1 || trimmed.slice(close + 2).trim() === '';
+    return close === -1 || hasNoLiveCode(trimmed.slice(close + 2));
+  }
+
+  if (trimmed.startsWith('/*')) {
+    return hasNoLiveCode(trimmed);
   }
 
   if (SQL_FILE.test(path) && trimmed.startsWith('--')) return true;

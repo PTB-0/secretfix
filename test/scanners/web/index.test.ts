@@ -164,6 +164,24 @@ describe('isCommentOnlyLine', () => {
   it('treats a lone block-comment closer as comment-only', () => {
     expect(isCommentOnlyLine(' */', 'server.ts')).toBe(true);
   });
+
+  it('treats a dead call between two block comments as comment-only', () => {
+    // Round 1 reasoned about the first `*/` only, so it read the second comment
+    // as live code. This is the regression the round-2 fix corrects.
+    expect(isCommentOnlyLine('/* a */ /* calls fs.readFile(req.query.file) but is dead */', 'server.ts')).toBe(true);
+  });
+
+  it('treats live code sitting between two block comments as not comment-only', () => {
+    expect(isCommentOnlyLine("/* a */ res.cookie('session', token) /* b */", 'server.ts')).toBe(false);
+  });
+
+  it('treats a live call after a bare block-comment closer as not comment-only', () => {
+    expect(isCommentOnlyLine('*/ fs.readFile(req.query.file);', 'server.ts')).toBe(false);
+  });
+
+  it('treats live code after two block comments in a row as not comment-only', () => {
+    expect(isCommentOnlyLine("/* a */ /* b */ res.cookie('session', token);", 'server.ts')).toBe(false);
+  });
 });
 
 describe('comment-only line guard (end-to-end)', () => {
@@ -330,5 +348,47 @@ describe('comment-only line guard (end-to-end)', () => {
     ]);
     expect(findings).toHaveLength(1);
     expect(findings[0].message).toContain('[nextjs/public-env-secret]');
+  });
+
+  // Fix round 2: round 1's block-comment check reasoned about a single `*/`
+  // position, so a second comment sitting after the first close read as "live
+  // code" and produced a spurious finding on an entirely inert line. The fix
+  // strips every closed block comment and judges what is left, so two comments
+  // around live code still fire and two comments with nothing between them
+  // don't.
+
+  it('does not report a dangerous call that is dead between two block comments on one line', async () => {
+    const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
+    const findings = await scanner.scan([
+      { path: 'server.ts', content: '/* a */ /* calls fs.readFile(req.query.file) but is dead */' }
+    ]);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('reports live code sitting between two block comments on one line', async () => {
+    // Guards against a lastIndexOf-based fix: that would silence this line,
+    // trading a noisy failure for a silent one.
+    const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
+    const findings = await scanner.scan([
+      { path: 'server.ts', content: "/* a */ res.cookie('session', token) /* b */" }
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain('[agnostic/insecure-cookie]');
+  });
+
+  it('reports a live call following a bare block-comment closer', async () => {
+    const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
+    const findings = await scanner.scan([{ path: 'server.ts', content: '*/ fs.readFile(req.query.file);' }]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain('[agnostic/path-traversal]');
+  });
+
+  it('reports live code following two block comments in a row', async () => {
+    const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
+    const findings = await scanner.scan([
+      { path: 'server.ts', content: "/* a */ /* b */ res.cookie('session', token);" }
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain('[agnostic/insecure-cookie]');
   });
 });
