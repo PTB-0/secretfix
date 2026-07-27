@@ -84,7 +84,12 @@ function coalesce(accepted: { finding: Finding; fix: FixDescriptor }[]): {
   for (const { finding, fix } of accepted) {
     // The key includes the kind, so every fix in a group shares it — which is
     // what lets the replace-line branch below assume index alignment.
-    const key = `${fix.kind} ${targetFile(fix)} ${targetLine(fix)}`;
+    //
+    // NUL separates the parts because it cannot occur in `fix.kind` or in a file
+    // path, so two different fixes can never collide into one key. A printable
+    // separator would only be safe while every kind starts with a distinct letter
+    // and the trailing field stays numeric — an invariant nothing enforces.
+    const key = `${fix.kind}\0${targetFile(fix)}\0${targetLine(fix)}`;
     const group = groups.get(key);
     if (group) {
       group.findings.push(finding);

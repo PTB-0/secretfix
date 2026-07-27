@@ -201,6 +201,49 @@ describe('resolveFindings', () => {
     expect(writes[0]).toMatchObject({ replacement: 'FIRST' });
     expect(result.unresolved.map((finding) => finding.message)).toEqual(['two']);
   });
+
+  // The group key in `coalesce` joins kind/file/line with NUL rather than a
+  // printable separator specifically so no two distinct fixes can ever land in
+  // the same group. No pair of (kind, file, line) triples can be constructed
+  // that a space-joined key would conflate (kind never contains a space, and
+  // line is always numeric), so this pins the property the separator protects
+  // — different files never merge — rather than a collision the current inputs
+  // cannot actually produce.
+  it('keeps fixes on different files with the same kind as separate writes', async () => {
+    const writes: FixDescriptor[] = [];
+    const findings: Finding[] = [
+      {
+        scanner: 'web',
+        severity: 'high',
+        file: 'a.ts',
+        line: 1,
+        message: 'one',
+        fix: { kind: 'replace-line', file: 'a.ts', line: 1, replacement: 'ONE' }
+      },
+      {
+        scanner: 'web',
+        severity: 'high',
+        file: 'b.ts',
+        line: 1,
+        message: 'two',
+        fix: { kind: 'replace-line', file: 'b.ts', line: 1, replacement: 'TWO' }
+      }
+    ];
+
+    const result = await resolveFindings(
+      findings,
+      '/repo',
+      async () => 'y',
+      (fix) => {
+        writes.push(fix);
+        return [];
+      },
+      () => undefined
+    );
+
+    expect(writes).toHaveLength(2);
+    expect(result.resolved).toHaveLength(2);
+  });
 });
 
 describe('resolveFindings applied against real files', () => {
