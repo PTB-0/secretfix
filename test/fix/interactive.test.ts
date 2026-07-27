@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveFindings } from '../../src/fix/interactive.js';
 import { applyFix } from '../../src/fix/fixers.js';
-import type { Finding } from '../../src/types.js';
+import type { Finding, FixDescriptor } from '../../src/types.js';
 
 function finding(overrides: Partial<Finding> = {}): Finding {
   return {
@@ -109,6 +109,97 @@ describe('resolveFindings', () => {
 
     expect(result.resolved).toHaveLength(0);
     expect(result.unresolved).toHaveLength(1);
+  });
+
+  it("keeps a rewrite's line when a suppression marker collides with it", async () => {
+    const writes: FixDescriptor[] = [];
+    const findings: Finding[] = [
+      {
+        scanner: 'web',
+        severity: 'high',
+        file: 'a.ts',
+        line: 3,
+        message: 'rewrite',
+        fix: { kind: 'replace-line', file: 'a.ts', line: 3, replacement: 'FIXED', rewrite: true }
+      },
+      {
+        scanner: 'owasp',
+        severity: 'high',
+        file: 'a.ts',
+        line: 3,
+        message: 'marker',
+        fix: { kind: 'replace-line', file: 'a.ts', line: 3, replacement: '// marker\nORIGINAL' }
+      }
+    ];
+
+    const result = await resolveFindings(
+      findings,
+      '/repo',
+      async () => 'y',
+      (fix) => {
+        writes.push(fix);
+        return [];
+      },
+      () => undefined
+    );
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatchObject({ kind: 'replace-line', replacement: '// marker\nFIXED' });
+    expect(result.unresolved).toHaveLength(0);
+  });
+
+  it('keeps the rewrite regardless of the order the fixes arrive in', async () => {
+    const writes: FixDescriptor[] = [];
+    const marker: Finding = {
+      scanner: 'owasp',
+      severity: 'high',
+      file: 'a.ts',
+      line: 3,
+      message: 'marker',
+      fix: { kind: 'replace-line', file: 'a.ts', line: 3, replacement: '// marker\nORIGINAL' }
+    };
+    const rewrite: Finding = {
+      scanner: 'web',
+      severity: 'high',
+      file: 'a.ts',
+      line: 3,
+      message: 'rewrite',
+      fix: { kind: 'replace-line', file: 'a.ts', line: 3, replacement: 'FIXED', rewrite: true }
+    };
+
+    await resolveFindings([marker, rewrite], '/repo', async () => 'y', (fix) => {
+      writes.push(fix);
+      return [];
+    }, () => undefined);
+
+    expect(writes[0]).toMatchObject({ replacement: '// marker\nFIXED' });
+  });
+
+  it('applies one of two colliding rewrites and leaves the other unresolved', async () => {
+    const writes: FixDescriptor[] = [];
+    const rewriteOf = (replacement: string, message: string): Finding => ({
+      scanner: 'web',
+      severity: 'high',
+      file: 'a.ts',
+      line: 3,
+      message,
+      fix: { kind: 'replace-line', file: 'a.ts', line: 3, replacement, rewrite: true }
+    });
+
+    const result = await resolveFindings(
+      [rewriteOf('FIRST', 'one'), rewriteOf('SECOND', 'two')],
+      '/repo',
+      async () => 'y',
+      (fix) => {
+        writes.push(fix);
+        return [];
+      },
+      () => undefined
+    );
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatchObject({ replacement: 'FIRST' });
+    expect(result.unresolved.map((finding) => finding.message)).toEqual(['two']);
   });
 });
 

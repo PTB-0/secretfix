@@ -3,7 +3,12 @@ export type Severity = 'critical' | 'high' | 'medium' | 'low';
 export type FixDescriptor =
   | { kind: 'move-to-env'; file: string; line: number; envVarName: string; secretValue: string }
   | { kind: 'bump-dependency'; packageJsonPath: string; packageName: string; targetVersion: string }
-  | { kind: 'replace-line'; file: string; line: number; replacement: string }
+  /**
+   * Replaces a single line. `rewrite` marks a genuine code change, as opposed to
+   * a suppression marker that re-emits the original line unchanged — the merge
+   * logic needs the distinction to know which line survives a collision.
+   */
+  | { kind: 'replace-line'; file: string; line: number; replacement: string; rewrite?: true }
   /** Drops a file from the index and gitignores it, without touching the copy on disk. */
   | { kind: 'unstage-file'; file: string };
 
