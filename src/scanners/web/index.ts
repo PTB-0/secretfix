@@ -22,29 +22,47 @@ function applies(rule: WebRule, context: ScanContext): boolean {
   return rule.frameworks.some((framework) => context.frameworks.has(framework));
 }
 
+/** `--` starts a comment here; in JavaScript it is a decrement operator. */
+const SQL_FILE = /\.sql$/i;
+
+/** `#` starts a comment here; in JavaScript it begins a private class member. */
+const HASH_COMMENT_FILE = /(?:^|\/)\.env(?:\.[\w.-]+)?$|\.ya?ml$/i;
+
 /**
- * True when the line carries nothing but a comment.
+ * True when the line cannot contain live code.
  *
  * Line rules match a raw line, so without this a commented-out call — or a note
  * to a colleague that happens to quote one — reports at the rule's full severity
  * and blocks the commit. That is the false positive most corrosive to a tool that
  * has to stay quiet to stay installed.
  *
- * Deliberately narrow: it judges whole-line comments only. A trailing comment on
- * a live line (`doThing(); // and req.body here`) still matches, and so does a
- * pattern inside a string literal. Both need real tokenisation to settle, and
- * over-reaching here would suppress live code.
+ * Suppressing a *live* line is the worse error, so each marker is honoured only
+ * where it genuinely runs to end-of-line: a block comment is checked for a close
+ * that hands back to code on the same line, and `--` and `#` are gated to the
+ * file types where they start a comment at all.
+ *
+ * Deliberately narrow beyond that: a trailing comment on a live line
+ * (`doThing(); // and req.body here`) still matches, and so does a pattern inside
+ * a string literal. Both need real tokenisation to settle.
  */
-export function isCommentOnlyLine(line: string): boolean {
+export function isCommentOnlyLine(line: string, path: string): boolean {
   const trimmed = line.trim();
   if (trimmed === '') return false;
-  return (
-    trimmed.startsWith('//') ||
-    trimmed.startsWith('--') ||
-    trimmed.startsWith('#') ||
-    trimmed.startsWith('/*') ||
-    trimmed.startsWith('*')
-  );
+
+  // `//` runs to end-of-line in every language this scanner reads.
+  if (trimmed.startsWith('//')) return true;
+
+  // A block comment leaves the line inert only if it does not close and hand back
+  // to code. `/* note */ fs.readFile(req.query.f)` is live, dangerous, and common.
+  if (trimmed.startsWith('/*') || trimmed.startsWith('*')) {
+    const close = trimmed.indexOf('*/');
+    return close === -1 || trimmed.slice(close + 2).trim() === '';
+  }
+
+  if (SQL_FILE.test(path) && trimmed.startsWith('--')) return true;
+  if (HASH_COMMENT_FILE.test(path) && trimmed.startsWith('#')) return true;
+
+  return false;
 }
 
 function hitsFor(rule: WebRule, file: StagedFile, context: ScanContext): Hit[] {
@@ -60,7 +78,7 @@ function hitsFor(rule: WebRule, file: StagedFile, context: ScanContext): Hit[] {
 
   const hits: Hit[] = [];
   file.content.split('\n').forEach((line, index) => {
-    if (isCommentOnlyLine(line)) return;
+    if (isCommentOnlyLine(line, file.path)) return;
     if (rule.regex.test(line)) {
       hits.push({ line: index + 1, fix: rule.fix?.(line, index + 1, file) });
     }

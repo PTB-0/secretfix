@@ -115,29 +115,54 @@ describe('createWebScanner', () => {
 
 describe('isCommentOnlyLine', () => {
   it.each([
-    ['// a JS/TS/Firestore-rules line comment', '// res.cookie(...)'],
-    ['a -- SQL line comment', '-- ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;'],
-    ['a # .env/YAML line comment', '# NEXT_PUBLIC_API_SECRET=abc123'],
-    ['a /* block-comment opening line', '/* fs.readFile(req.query.file) */'],
-    ['a * block-comment continuation line', ' * still describing the old call']
-  ])('treats %s as comment-only', (_label, line) => {
-    expect(isCommentOnlyLine(line)).toBe(true);
+    ['// a JS/TS/Firestore-rules line comment', '// res.cookie(...)', 'a.ts'],
+    ['a -- SQL line comment in a .sql file', '-- ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;', 'supabase/migrations/001.sql'],
+    ['a # comment in a .env file', '# NEXT_PUBLIC_API_SECRET=abc123', '.env.local'],
+    ['a /* ... */ block comment with nothing after the close', '/* fs.readFile(req.query.file) */', 'a.ts'],
+    ['a * block-comment continuation line with no close', ' * still describing the old call', 'a.ts']
+  ])('treats %s as comment-only', (_label, line, path) => {
+    expect(isCommentOnlyLine(line, path)).toBe(true);
   });
 
   it('treats an empty line as not comment-only', () => {
-    expect(isCommentOnlyLine('')).toBe(false);
+    expect(isCommentOnlyLine('', 'a.ts')).toBe(false);
   });
 
   it('treats a whitespace-only line as not comment-only', () => {
-    expect(isCommentOnlyLine('    ')).toBe(false);
+    expect(isCommentOnlyLine('    ', 'a.ts')).toBe(false);
   });
 
   it('treats a live line as not comment-only', () => {
-    expect(isCommentOnlyLine("res.cookie('session', token);")).toBe(false);
+    expect(isCommentOnlyLine("res.cookie('session', token);", 'a.ts')).toBe(false);
   });
 
   it('treats a live line with a trailing comment as not comment-only', () => {
-    expect(isCommentOnlyLine("doThing(); // and req.body here")).toBe(false);
+    expect(isCommentOnlyLine("doThing(); // and req.body here", 'a.ts')).toBe(false);
+  });
+
+  it('does not treat a decrement statement in a .js file as a comment', () => {
+    // `--` only starts a comment in SQL; in JavaScript it is the decrement operator.
+    expect(isCommentOnlyLine('--retriesLeft;', 'app.js')).toBe(false);
+  });
+
+  it('does not treat a private class field in a .ts file as a comment', () => {
+    // `#` only starts a comment in .env/YAML; in JavaScript/TypeScript it begins
+    // a private class member.
+    expect(isCommentOnlyLine('#token = process.env.SECRET;', 'src/config.ts')).toBe(false);
+  });
+
+  it('treats an unclosed block comment as comment-only even mid-way through code', () => {
+    expect(isCommentOnlyLine('/* legacy helper still calls fs.readFile(req.query.file)', 'server.ts')).toBe(true);
+  });
+
+  it('treats a block comment that closes and hands back to live code as not comment-only', () => {
+    expect(
+      isCommentOnlyLine('/* legacy helper */ fs.readFile(req.query.file);', 'server.ts')
+    ).toBe(false);
+  });
+
+  it('treats a lone block-comment closer as comment-only', () => {
+    expect(isCommentOnlyLine(' */', 'server.ts')).toBe(true);
   });
 });
 
@@ -173,7 +198,7 @@ describe('comment-only line guard (end-to-end)', () => {
   it('does not report a commented-out RLS-disabled statement in a SQL migration', async () => {
     const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
     const findings = await scanner.scan([
-      { path: 'migrations/0001_init.sql', content: '-- ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;' }
+      { path: 'supabase/migrations/001.sql', content: '-- ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;' }
     ]);
     expect(findings).toHaveLength(0);
   });
@@ -181,7 +206,7 @@ describe('comment-only line guard (end-to-end)', () => {
   it('still reports the live RLS-disabled statement in a SQL migration', async () => {
     const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
     const findings = await scanner.scan([
-      { path: 'migrations/0001_init.sql', content: 'ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;' }
+      { path: 'supabase/migrations/001.sql', content: 'ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;' }
     ]);
     expect(findings).toHaveLength(1);
     expect(findings[0].message).toContain('[baas/supabase-rls-disabled]');
@@ -204,13 +229,13 @@ describe('comment-only line guard (end-to-end)', () => {
 
   it('does not report a commented-out NEXT_PUBLIC_ secret in a .env file', async () => {
     const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
-    const findings = await scanner.scan([{ path: '.env', content: '# NEXT_PUBLIC_API_SECRET=abc123' }]);
+    const findings = await scanner.scan([{ path: '.env.local', content: '# NEXT_PUBLIC_API_SECRET=abc123' }]);
     expect(findings).toHaveLength(0);
   });
 
   it('still reports the live NEXT_PUBLIC_ secret in a .env file', async () => {
     const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
-    const findings = await scanner.scan([{ path: '.env', content: 'NEXT_PUBLIC_API_SECRET=abc123' }]);
+    const findings = await scanner.scan([{ path: '.env.local', content: 'NEXT_PUBLIC_API_SECRET=abc123' }]);
     expect(findings).toHaveLength(1);
     expect(findings[0].message).toContain('[nextjs/public-env-secret]');
   });
@@ -233,5 +258,77 @@ describe('comment-only line guard (end-to-end)', () => {
     const findings = await scanner.scan([{ path: 'server.ts', content }]);
     expect(findings).toHaveLength(1);
     expect(findings[0].line).toBe(3);
+  });
+
+  // Fix round 1: the guard originally suppressed a live call sitting after a
+  // closed block comment, and treated `--`/`#` as comments in languages where
+  // they are not — a decrement operator and a private class field, respectively.
+  // These pin the corrected, path-aware behaviour.
+
+  it('reports a live call that follows a block comment closed earlier on the same line', async () => {
+    const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
+    const findings = await scanner.scan([
+      { path: 'server.ts', content: '/* legacy helper */ fs.readFile(req.query.file);' }
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain('[agnostic/path-traversal]');
+  });
+
+  it('does not report a dangerous call sitting inside an unclosed block comment', async () => {
+    const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
+    const findings = await scanner.scan([
+      { path: 'server.ts', content: '/* legacy helper still calls fs.readFile(req.query.file)' }
+    ]);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not report a dangerous call fully commented on one /* ... */ line', async () => {
+    const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
+    const findings = await scanner.scan([
+      { path: 'server.ts', content: '/* legacy helper covers fs.readFile(req.query.file) */' }
+    ]);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not report anything on a line that is only a block-comment closer', async () => {
+    const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
+    const findings = await scanner.scan([{ path: 'server.ts', content: ' */' }]);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('does not report a dangerous call written as a JSDoc continuation line', async () => {
+    const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
+    const findings = await scanner.scan([{ path: 'server.ts', content: '* fs.readFile(req.query.file);' }]);
+    expect(findings).toHaveLength(0);
+  });
+
+  it('reports a decrement statement followed by a live call in a .js file', async () => {
+    // `--` is a decrement operator in JavaScript, not a comment marker.
+    const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
+    const findings = await scanner.scan([
+      { path: 'app.js', content: "--retriesLeft; res.cookie('session', token);" }
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain('[agnostic/insecure-cookie]');
+  });
+
+  it('reports a NEXT_PUBLIC_ secret assigned to a private class field in a .ts file', async () => {
+    // `#` begins a private class member in JS/TS, not a comment — the gate must
+    // key off file type, not the marker alone.
+    const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
+    const findings = await scanner.scan([
+      { path: 'src/config.ts', content: '#token = process.env.NEXT_PUBLIC_ADMIN_TOKEN;' }
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain('[nextjs/public-env-secret]');
+  });
+
+  it('reports the same # line when staged as a .ts file, proving the gate is by file type', async () => {
+    const scanner = createWebScanner(contextWith(EVERY_FRAMEWORK), ALL_RULES);
+    const findings = await scanner.scan([
+      { path: 'src/config.ts', content: '# NEXT_PUBLIC_ADMIN_TOKEN=abc' }
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain('[nextjs/public-env-secret]');
   });
 });
