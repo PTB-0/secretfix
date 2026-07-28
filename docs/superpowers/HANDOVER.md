@@ -42,12 +42,12 @@ Task-by-task plan: `docs/superpowers/plans/2026-07-26-web-scanner.md` (14 tasks,
 | 8 | `mergeReplacements` rewrite-aware | done after 1 fix round, `c94e7f1` |
 | 9 | Deterministic line-rewrite fixes | done after 1 fix round, `15a18b2` |
 | 10 | `add-security-headers` fix | done, `2e6131e` |
-| 11 | Diff preview before applying a rewrite | done, `97402be` — **NEXT: Task 12** |
-| 12 | `--json` agent handoff report | not started |
-| 13 | Optional AI fix layer behind `--ai` | not started |
-| 14 | End-to-end coverage + README | not started |
+| 11 | Diff preview before applying a rewrite | done, `97402be` |
+| 12 | `--json` agent handoff report | done, `0501235` |
+| 13 | Optional AI fix layer behind `--ai` | done, `3126f09` |
+| 14 | End-to-end coverage + README | done, `7bc0003` |
 
-After Task 14: a **final whole-branch review** on the most capable model, then `superpowers:finishing-a-development-branch`.
+**All 15 tasks complete (1–14, plus inserted 7b), 436/436 tests.** Per the plan: a **final whole-branch review** on the most capable model, then `superpowers:finishing-a-development-branch`. **The final review has not been run yet** — that's the next step.
 
 ### What works today
 
