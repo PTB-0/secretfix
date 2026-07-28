@@ -41,8 +41,8 @@ Task-by-task plan: `docs/superpowers/plans/2026-07-26-web-scanner.md` (14 tasks,
 | 7b | *(inserted)* line rules skip comment-only lines | done after **2 fix rounds**, `52e5086` |
 | 8 | `mergeReplacements` rewrite-aware | done after 1 fix round, `c94e7f1` |
 | 9 | Deterministic line-rewrite fixes | done after 1 fix round, `15a18b2` |
-| 10 | `add-security-headers` fix | **NEXT** |
-| 11 | Diff preview before applying a rewrite | not started |
+| 10 | `add-security-headers` fix | done, `2e6131e` |
+| 11 | Diff preview before applying a rewrite | done, `97402be` — **NEXT: Task 12** |
 | 12 | `--json` agent handoff report | not started |
 | 13 | Optional AI fix layer behind `--ai` | not started |
 | 14 | End-to-end coverage + README | not started |
