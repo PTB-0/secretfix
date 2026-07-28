@@ -23,13 +23,30 @@ export interface DepsScannerDeps {
   queryOsv: (packages: { name: string; version: string }[]) => Promise<OsvFinding[]>;
 }
 
-function defaultRunNpmAudit(cwd: string): NpmAuditJson {
+/**
+ * On Windows `npm` is a `.cmd` shim, not a native executable, so it needs a
+ * shell to run it at all: `execFileSync('npm', ...)` throws ENOENT (no such
+ * file), and `execFileSync('npm.cmd', ...)` throws EINVAL — Node refuses to
+ * spawn a `.cmd`/`.bat` file directly without `shell: true`. Node also warns
+ * (DEP0190) about combining `shell: true` with an args array, since the args
+ * are not escaped — so the whole invocation is one fixed string with no args,
+ * never user- or attacker-supplied content, rather than array args plus shell.
+ */
+export function defaultRunNpmAudit(cwd: string): NpmAuditJson {
   try {
-    const output = execFileSync('npm', ['audit', '--json'], {
-      cwd,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
+    const output =
+      process.platform === 'win32'
+        ? execFileSync('npm audit --json', [], {
+            cwd,
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+            shell: true
+          })
+        : execFileSync('npm', ['audit', '--json'], {
+            cwd,
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe']
+          });
     return JSON.parse(output) as NpmAuditJson;
   } catch (err) {
     const execErr = err as { stdout?: string };
