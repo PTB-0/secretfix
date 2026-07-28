@@ -86,6 +86,11 @@ describe('Next.js web rules', () => {
     );
   });
 
+  it('attaches an add-security-headers fix to a config with no headers', async () => {
+    const [finding] = await findings('export default { reactStrictMode: true };', 'next.config.mjs');
+    expect(finding.fix).toEqual({ kind: 'add-security-headers', file: 'next.config.mjs' });
+  });
+
   it('does not flag a next config that already sets headers', async () => {
     const content = 'export default {\n  async headers() {\n    return [];\n  },\n};';
     expect(await ids(content, 'next.config.mjs')).not.toContain('nextjs/missing-security-headers');

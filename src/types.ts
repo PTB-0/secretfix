@@ -10,7 +10,9 @@ export type FixDescriptor =
    */
   | { kind: 'replace-line'; file: string; line: number; replacement: string; rewrite?: true }
   /** Drops a file from the index and gitignores it, without touching the copy on disk. */
-  | { kind: 'unstage-file'; file: string };
+  | { kind: 'unstage-file'; file: string }
+  /** Writes a security-headers block into a Next.js config that has none. */
+  | { kind: 'add-security-headers'; file: string };
 
 export interface Finding {
   scanner: 'secrets' | 'owasp' | 'deps' | 'web';

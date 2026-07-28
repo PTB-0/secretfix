@@ -19,7 +19,9 @@ interface AcceptedFix {
 }
 
 function targetLine(fix: FixDescriptor): number {
-  return fix.kind === 'bump-dependency' || fix.kind === 'unstage-file' ? 0 : fix.line;
+  return fix.kind === 'bump-dependency' || fix.kind === 'unstage-file' || fix.kind === 'add-security-headers'
+    ? 0
+    : fix.line;
 }
 
 function targetFile(fix: FixDescriptor): string {

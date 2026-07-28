@@ -136,7 +136,10 @@ export const NEXTJS_RULES: readonly WebRule[] = [
     appliesTo: NEXT_CONFIG,
     message:
       'No security headers are configured. Without a Content-Security-Policy your site has no defence-in-depth against injected scripts, and without Strict-Transport-Security and X-Frame-Options it can be downgraded or framed.',
-    check: (file) => (HEADERS_BLOCK.test(file.content) ? [] : [{ line: 1 }])
+    check: (file) =>
+      HEADERS_BLOCK.test(file.content)
+        ? []
+        : [{ line: 1, fix: { kind: 'add-security-headers', file: file.path } }]
   },
   {
     kind: 'file',

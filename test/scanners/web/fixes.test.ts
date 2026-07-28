@@ -8,11 +8,13 @@ const context: ScanContext = {
   readRepoFile: () => undefined
 };
 
-/** The replacement text of the first fix offered for `content`, or undefined. */
+/** The replacement text of the first `replace-line` fix offered for `content`, or undefined. */
 async function replacement(content: string, path = 'app.ts'): Promise<string | undefined> {
   const findings = await createWebScanner(context).scan([{ path, content }]);
-  const fix = findings.map((finding) => finding.fix).find((candidate) => candidate !== undefined);
-  return fix !== undefined && fix.kind === 'replace-line' ? fix.replacement : undefined;
+  const fix = findings
+    .map((finding) => finding.fix)
+    .find((candidate): candidate is Extract<typeof candidate, { kind: 'replace-line' }> => candidate?.kind === 'replace-line');
+  return fix?.replacement;
 }
 
 async function fixes(content: string, path = 'app.ts') {
@@ -41,7 +43,7 @@ describe('deterministic web fixes', () => {
   it.each([
     ["res.cookie('session', token);", 'app.ts'],
     [['app.use(cors({', "  origin: '*',", '  credentials: true,', '}));'].join('\n'), 'server.js'],
-    ["export default { images: { domains: ['*'] } };", 'next.config.mjs'],
+    ["export default { async headers() { return []; }, images: { domains: ['*'] } };", 'next.config.mjs'],
     ['app.use(express.static(__dirname));', 'server.js']
   ])('marks the fix from each of the four rules as a rewrite (%#)', async (content, path) => {
     const [fix] = await fixes(content, path);
@@ -63,7 +65,8 @@ describe('deterministic web fixes', () => {
   });
 
   it('offers no fix for a wildcard remote pattern', async () => {
-    const content = "export default { images: { remotePatterns: [{ hostname: '**' }] } };";
+    const content =
+      "export default { async headers() { return []; }, images: { remotePatterns: [{ hostname: '**' }] } };";
     expect(await fixes(content, 'next.config.mjs')).toHaveLength(0);
   });
 

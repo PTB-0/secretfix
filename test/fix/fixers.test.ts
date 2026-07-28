@@ -145,4 +145,41 @@ describe('applyFix', () => {
       /line 99/
     );
   });
+
+  it('inserts a headers() block into an ESM next config', () => {
+    writeFileSync(join(dir, 'next.config.mjs'), 'export default {\n  reactStrictMode: true,\n};\n');
+
+    const touched = applyFix({ kind: 'add-security-headers', file: 'next.config.mjs' }, dir);
+
+    const updated = readFileSync(join(dir, 'next.config.mjs'), 'utf8');
+    expect(touched).toEqual(['next.config.mjs']);
+    expect(updated).toContain('Content-Security-Policy');
+    expect(updated).toContain('Strict-Transport-Security');
+    expect(updated).toContain('X-Frame-Options');
+    expect(updated).toContain('reactStrictMode: true');
+  });
+
+  it('inserts a headers() block into a CommonJS next config', () => {
+    writeFileSync(join(dir, 'next.config.js'), 'module.exports = {\n  poweredByHeader: false,\n};\n');
+
+    applyFix({ kind: 'add-security-headers', file: 'next.config.js' }, dir);
+
+    expect(readFileSync(join(dir, 'next.config.js'), 'utf8')).toContain('async headers()');
+  });
+
+  it('refuses to touch a config that already defines headers()', () => {
+    writeFileSync(join(dir, 'next.config.mjs'), 'export default {\n  async headers() {\n    return [];\n  },\n};\n');
+
+    expect(() => applyFix({ kind: 'add-security-headers', file: 'next.config.mjs' }, dir)).toThrow(/already defines/);
+  });
+
+  it('refuses to guess when there is no config object literal', () => {
+    writeFileSync(join(dir, 'next.config.mjs'), 'export default withPlugins(plugins);\n');
+
+    expect(() => applyFix({ kind: 'add-security-headers', file: 'next.config.mjs' }, dir)).toThrow(/config object/);
+  });
+
+  it('reports a missing config file rather than creating one', () => {
+    expect(() => applyFix({ kind: 'add-security-headers', file: 'next.config.mjs' }, dir)).toThrow(/not found/);
+  });
 });

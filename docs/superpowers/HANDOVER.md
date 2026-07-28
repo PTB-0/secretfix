@@ -40,8 +40,8 @@ Task-by-task plan: `docs/superpowers/plans/2026-07-26-web-scanner.md` (14 tasks,
 | 7 | 4 Express + 3 BaaS rules — **26-rule catalogue complete** | done after 1 fix round, `6a7e69a` |
 | 7b | *(inserted)* line rules skip comment-only lines | done after **2 fix rounds**, `52e5086` |
 | 8 | `mergeReplacements` rewrite-aware | done after 1 fix round, `c94e7f1` |
-| 9 | Deterministic line-rewrite fixes | **NEXT** — brief already extracted |
-| 10 | `add-security-headers` fix | not started |
+| 9 | Deterministic line-rewrite fixes | done after 1 fix round, `15a18b2` |
+| 10 | `add-security-headers` fix | **NEXT** |
 | 11 | Diff preview before applying a rewrite | not started |
 | 12 | `--json` agent handoff report | not started |
 | 13 | Optional AI fix layer behind `--ai` | not started |

@@ -55,6 +55,30 @@ function readLines(path: string, file: string, line: number): string[] {
 }
 
 /**
+ * A deliberately conservative baseline. `unsafe-inline` for styles is kept
+ * because Next.js injects inline styles and a stricter value would break the
+ * app on the spot — a header that gets reverted protects nobody.
+ */
+const SECURITY_HEADERS_BLOCK = `  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-ancestors 'none'"
+          },
+          { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' }
+        ]
+      }
+    ];
+  },
+`;
+
+/**
  * Applies a fix and returns the repo-relative paths that should be re-staged.
  * `.env` is deliberately never returned — it holds the secret and must stay out
  * of the commit.
@@ -137,6 +161,29 @@ export function applyFix(fix: FixDescriptor, cwd: string): string[] {
       appendLine(gitignorePath, fix.file);
       // Never return the unstaged path itself — re-staging it would undo the fix.
       return ['.gitignore'];
+    }
+    case 'add-security-headers': {
+      const filePath = join(cwd, fix.file);
+      if (!existsSync(filePath)) {
+        throw new Error(`cannot add security headers: ${fix.file} not found`);
+      }
+
+      const content = readFileSync(filePath, 'utf8');
+      if (/\bheaders\s*\(/.test(content)) {
+        throw new Error(`cannot add security headers: ${fix.file} already defines a headers() function`);
+      }
+
+      // Only a plain object literal is safe to edit. A config wrapped in a
+      // plugin call has no literal to insert into, and guessing would corrupt it
+      // — throwing leaves the finding unresolved, which keeps the commit blocked.
+      const opening = /(?:export\s+default|module\.exports\s*=)\s*\{/.exec(content);
+      if (opening === null) {
+        throw new Error(`cannot add security headers: no config object literal found in ${fix.file}`);
+      }
+
+      const insertAt = opening.index + opening[0].length;
+      writeFileSync(filePath, `${content.slice(0, insertAt)}\n${SECURITY_HEADERS_BLOCK}${content.slice(insertAt)}`);
+      return [fix.file];
     }
   }
 }
