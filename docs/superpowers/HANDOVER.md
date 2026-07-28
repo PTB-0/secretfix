@@ -47,7 +47,13 @@ Task-by-task plan: `docs/superpowers/plans/2026-07-26-web-scanner.md` (14 tasks,
 | 13 | Optional AI fix layer behind `--ai` | done, `3126f09` |
 | 14 | End-to-end coverage + README | done, `7bc0003` |
 
-**All 15 tasks complete (1–14, plus inserted 7b), 436/436 tests.** Per the plan: a **final whole-branch review** on the most capable model, then `superpowers:finishing-a-development-branch`. **The final review has not been run yet** — that's the next step.
+**All 15 tasks complete (1–14, plus inserted 7b), 438/438 tests.** Final
+whole-branch review done (self-reviewed inline, not a separate agent —
+cost-driven decision this session): found one new gap (`add-security-headers`
+had no diff preview, contradicting §1's own stated principle) and confirmed
+all 11 §5 deferred findings still hold. Both that gap and the §6 npm-audit-
+on-Windows question were fixed at the user's request — see commits `a962720`
+and `7f1496d`. Branch is ready for `superpowers:finishing-a-development-branch`.
 
 ### What works today
 
@@ -113,11 +119,9 @@ None of these block progress. All are recorded in the ledger with fuller reasoni
 
 ---
 
-## 6. Open question for the user
+## 6. Open question for the user — RESOLVED
 
-**The `deps` scanner's `npm audit` path has never worked on Windows.** `execFileSync('npm', ...)` throws `ENOENT` because it needs `npm.cmd` or a shell. The OSV cross-reference half *does* work — verified live, `express@4.0.0` produced three advisories — so the scanner is not dead, just missing a source.
-
-This is pre-existing and outside this plan. Fixing it changes which commits get blocked, so it is the user's call: fix it as separate work after this branch, squeeze it in now, or leave it as a known limitation. **Not yet answered.**
+**The `deps` scanner's `npm audit` path did not work on Windows; now it does (commit `7f1496d`).** Root cause was two-layered: `npm` is a `.cmd` shim on Windows, so `execFileSync('npm', ...)` throws `ENOENT`; switching to `execFileSync('npm.cmd', ...)` instead throws `EINVAL` (Node refuses to spawn a `.cmd`/`.bat` directly without `shell: true`). Fixed with `shell: true` on Windows only, using the whole invocation as one fixed command string rather than array args + `shell: true` (Node deprecates that combination via `DEP0190`, since the args aren't escaped). Verified live against this actual repo — real `npm audit` now runs with no ENOENT/EINVAL and no deprecation warning.
 
 ---
 
