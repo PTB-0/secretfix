@@ -18,6 +18,7 @@ import { createScanContext } from '../scanners/web/context.js';
 import { createWebScanner, ALL_RULES } from '../scanners/web/index.js';
 import { resolveFindings, type PromptFn } from '../fix/interactive.js';
 import { buildReport } from '../report.js';
+import { proposeFixes } from '../fix/ai.js';
 import type { Finding, Scanner, StagedFile } from '../types.js';
 import type { ScanContext } from '../scanners/web/types.js';
 
@@ -25,6 +26,7 @@ export interface ScanOptions extends CliOverrides {
   cwd?: string;
   prompt: PromptFn;
   json?: boolean;
+  ai?: boolean;
 }
 
 /**
@@ -121,7 +123,8 @@ export async function scanCommand(options: ScanOptions): Promise<number> {
 
   console.log(`\nsecretfix: ${blocking.length} issue(s) found in your staged changes.\n`);
 
-  const { resolved, unresolved } = await resolveFindings(blocking, cwd, options.prompt);
+  const withFixes = options.ai === true ? await proposeFixes(blocking, cwd) : blocking;
+  const { resolved, unresolved } = await resolveFindings(withFixes, cwd, options.prompt);
 
   if (unresolved.length > 0) {
     console.error(

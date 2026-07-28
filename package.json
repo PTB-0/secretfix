@@ -58,5 +58,8 @@
     "@types/prompts": "^2.4.9",
     "typescript": "^5.4.0",
     "vitest": "^1.4.0"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^0.115.0"
   }
 }

@@ -81,6 +81,7 @@ export function buildProgram(): Command {
     .option('--whole-file', 'scan entire staged files, not only the lines this commit adds')
     .option('--fail-on <severity>', 'lowest severity that blocks the commit (critical|high|medium|low)')
     .option('--json', 'print findings as JSON and exit without prompting or blocking')
+    .option('--ai', 'let Claude propose a patch for findings with no automatic fix (sends code to the API)')
     .action(
       async (opts: {
         secrets: boolean;
@@ -90,6 +91,7 @@ export function buildProgram(): Command {
         wholeFile?: boolean;
         failOn?: string;
         json?: boolean;
+        ai?: boolean;
       }) => {
         // Fail closed: anything that ends this process before the scan reports a
         // clean result — a crash, an unsettled promise — must block the commit.
@@ -102,6 +104,7 @@ export function buildProgram(): Command {
           wholeFile: opts.wholeFile,
           failOn: opts.failOn,
           json: opts.json,
+          ai: opts.ai,
           prompt: createPrompt()
         });
       }
