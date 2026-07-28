@@ -327,3 +327,126 @@ describe('resolveFindings applied against real files', () => {
     );
   });
 });
+
+describe('resolveFindings rewrite preview', () => {
+  let previewDir: string;
+
+  beforeEach(() => {
+    previewDir = mkdtempSync(join(tmpdir(), 'secretfix-interactive-preview-'));
+  });
+
+  afterEach(() => {
+    rmSync(previewDir, { recursive: true, force: true });
+  });
+
+  it('shows a before/after diff before asking about a rewrite', async () => {
+    const printed: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((message: unknown) => {
+      printed.push(String(message));
+    });
+
+    const rewriteFinding: Finding = {
+      scanner: 'web',
+      severity: 'high',
+      file: 'a.ts',
+      line: 3,
+      message: 'cookie has no flags',
+      fix: {
+        kind: 'replace-line',
+        file: 'a.ts',
+        line: 3,
+        replacement: "res.cookie('s', t, { httpOnly: true });",
+        rewrite: true
+      }
+    };
+
+    await resolveFindings(
+      [rewriteFinding],
+      '/repo',
+      async () => 'n',
+      () => [],
+      () => undefined,
+      () => "res.cookie('s', t);"
+    );
+
+    log.mockRestore();
+    expect(printed.join('\n')).toContain("- res.cookie('s', t);");
+    expect(printed.join('\n')).toContain("+ res.cookie('s', t, { httpOnly: true });");
+  });
+
+  it('shows no diff for a suppression marker', async () => {
+    const printed: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((message: unknown) => {
+      printed.push(String(message));
+    });
+
+    const markerFinding: Finding = {
+      scanner: 'owasp',
+      severity: 'high',
+      file: 'a.ts',
+      line: 3,
+      message: 'reviewed',
+      fix: { kind: 'replace-line', file: 'a.ts', line: 3, replacement: '// marker\nORIGINAL' }
+    };
+
+    await resolveFindings([markerFinding], '/repo', async () => 'n', () => [], () => undefined, () => 'ORIGINAL');
+
+    log.mockRestore();
+    expect(printed.join('\n')).not.toContain('+ ');
+  });
+
+  it('asks without a diff when the original line cannot be read', async () => {
+    const answers: string[] = [];
+    const rewriteFinding: Finding = {
+      scanner: 'web',
+      severity: 'high',
+      file: 'a.ts',
+      line: 3,
+      message: 'cookie has no flags',
+      fix: { kind: 'replace-line', file: 'a.ts', line: 3, replacement: 'FIXED', rewrite: true }
+    };
+
+    const result = await resolveFindings(
+      [rewriteFinding],
+      '/repo',
+      async () => {
+        answers.push('asked');
+        return 'y';
+      },
+      () => [],
+      () => undefined,
+      () => undefined
+    );
+
+    expect(answers).toEqual(['asked']);
+    expect(result.resolved).toHaveLength(1);
+  });
+
+  it('reads the preview line from the real working tree by default', async () => {
+    writeFileSync(join(previewDir, 'a.ts'), "line one\nres.cookie('s', t);\nline three\n");
+    const printed: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((message: unknown) => {
+      printed.push(String(message));
+    });
+
+    const rewriteFinding: Finding = {
+      scanner: 'web',
+      severity: 'high',
+      file: 'a.ts',
+      line: 2,
+      message: 'cookie has no flags',
+      fix: {
+        kind: 'replace-line',
+        file: 'a.ts',
+        line: 2,
+        replacement: "res.cookie('s', t, { httpOnly: true });",
+        rewrite: true
+      }
+    };
+
+    await resolveFindings([rewriteFinding], previewDir, async () => 'n', () => [], () => undefined);
+
+    log.mockRestore();
+    expect(printed.join('\n')).toContain("- res.cookie('s', t);");
+  });
+});

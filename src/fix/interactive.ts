@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Finding, FixDescriptor } from '../types.js';
 import { applyFix } from './fixers.js';
 import { restageFile } from '../git.js';
@@ -26,6 +28,36 @@ function targetLine(fix: FixDescriptor): number {
 
 function targetFile(fix: FixDescriptor): string {
   return fix.kind === 'bump-dependency' ? fix.packageJsonPath : fix.file;
+}
+
+type ReadLineFn = (file: string, line: number, cwd: string) => string | undefined;
+
+/** Best-effort: a preview that cannot be produced is simply not shown. */
+const readWorkingTreeLine: ReadLineFn = (file, line, cwd) => {
+  try {
+    return readFileSync(join(cwd, file), 'utf8').split('\n')[line - 1];
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Prints what the fix will write, for a fix that genuinely changes code.
+ * Accepting a suppression marker is low-stakes and self-explanatory; accepting a
+ * rewrite is not, so the author sees the new line before saying yes.
+ */
+function previewRewrite(fix: FixDescriptor, cwd: string, readLine: ReadLineFn): void {
+  if (fix.kind !== 'replace-line' || fix.rewrite !== true) return;
+
+  const before = readLine(fix.file, fix.line, cwd);
+  if (before === undefined) return;
+
+  const after = fix.replacement.split('\n');
+  console.log(`\n  - ${before.trim()}`);
+  for (const added of after) {
+    console.log(`  + ${added.trim()}`);
+  }
+  console.log('');
 }
 
 type ReplaceLineFix = Extract<FixDescriptor, { kind: 'replace-line' }>;
@@ -141,7 +173,8 @@ export async function resolveFindings(
   cwd: string,
   prompt: PromptFn,
   fix: ApplyFn = applyFix,
-  restage: RestageFn = restageFile
+  restage: RestageFn = restageFile,
+  readLine: ReadLineFn = readWorkingTreeLine
 ): Promise<ResolveResult> {
   const accepted: { finding: Finding; fix: FixDescriptor }[] = [];
   const unresolved: Finding[] = [];
@@ -155,6 +188,7 @@ export async function resolveFindings(
       continue;
     }
 
+    previewRewrite(finding.fix, cwd, readLine);
     const answer = await prompt(finding);
     if (answer === 'y') {
       accepted.push({ finding, fix: finding.fix });
