@@ -27,7 +27,18 @@ export const EXPRESS_RULES: readonly WebRule[] = [
     confidence: 'certain',
     regex: STATIC_PROJECT_ROOT,
     message:
-      'This serves your entire project directory as static files, so anyone can fetch /.env, /package.json or your source. Serve a dedicated directory such as "public" instead.'
+      'This serves your entire project directory as static files, so anyone can fetch /.env, /package.json or your source. Serve a dedicated directory such as "public" instead.',
+    fix: (line, lineNumber, file) => {
+      const replacement = line
+        .replace(/express\.static\s*\(\s*path\.(join|resolve)\s*\(\s*__dirname\s*,\s*['"]\.\.['"]\s*\)/, (match) =>
+          match.replace(/['"]\.\.['"]/, "'public'")
+        )
+        .replace(/express\.static\s*\(\s*(?:__dirname|process\.cwd\s*\(\s*\)|['"]\.\/?['"])\s*\)/, "express.static('public')");
+
+      return replacement === line
+        ? undefined
+        : { kind: 'replace-line', file: file.path, line: lineNumber, replacement, rewrite: true };
+    }
   },
   {
     kind: 'file',

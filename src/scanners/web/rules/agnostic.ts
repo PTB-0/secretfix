@@ -33,6 +33,36 @@ const AUTH_ENDPOINT = /(?:^|\/)(?:login|signin|sign-in|register|signup|sign-up|a
 const AUTH_HANDLER = /\b(?:export\s+(?:async\s+)?function\s+(?:POST|PUT)|export\s+const\s+(?:POST|PUT)\s*=|app\.post\s*\()/;
 const RATE_LIMIT_EVIDENCE = /\b(?:rate[-_]?limit\w*|ratelimit\w*|limiter|Ratelimit|throttle|slowDown|Bottleneck)\b/i;
 
+const COOKIE_FLAGS = "httpOnly: true, secure: true, sameSite: 'lax'";
+const COOKIE_CALL = /\b(?:res\.cookie|cookies\(\)\.set|cookies\.set|response\.cookies\.set)\s*\(/;
+
+/**
+ * Adds the missing flags to a single-line cookie call: into an existing options
+ * object where there is one, otherwise as a new final argument. Returns
+ * undefined when the shape is not one of those two, so an unusual call is left
+ * to the author rather than mangled.
+ */
+function cookieFlagFix(line: string): string | undefined {
+  const call = COOKIE_CALL.exec(line);
+  if (call === null) return undefined;
+
+  const openIndex = line.indexOf('(', call.index + call[0].length - 1);
+  const closeIndex = line.lastIndexOf(')');
+  if (openIndex === -1 || closeIndex <= openIndex) return undefined;
+
+  const args = line.slice(openIndex + 1, closeIndex);
+  const braceIndex = args.indexOf('{');
+
+  if (braceIndex !== -1) {
+    const inner = args.slice(braceIndex + 1);
+    const separator = inner.trim() === '' || inner.trim().startsWith('}') ? '' : ', ';
+    const patched = `${args.slice(0, braceIndex + 1)} ${COOKIE_FLAGS}${separator}${inner.replace(/^\s+/, '')}`;
+    return `${line.slice(0, openIndex + 1)}${patched}${line.slice(closeIndex)}`;
+  }
+
+  return `${line.slice(0, closeIndex)}, { ${COOKIE_FLAGS} }${line.slice(closeIndex)}`;
+}
+
 export const AGNOSTIC_RULES: readonly WebRule[] = [
   {
     kind: 'line',
@@ -112,7 +142,13 @@ export const AGNOSTIC_RULES: readonly WebRule[] = [
     confidence: 'certain',
     regex: /\b(?:res\.cookie|cookies\(\)\.set|cookies\.set|response\.cookies\.set)\s*\((?![^)]*\bhttpOnly\b)[^)]*\)/,
     message:
-      'This cookie has no httpOnly flag, so any script on the page can read it — including one injected through an XSS bug. Set httpOnly: true, secure: true and sameSite for anything that identifies a session.'
+      'This cookie has no httpOnly flag, so any script on the page can read it — including one injected through an XSS bug. Set httpOnly: true, secure: true and sameSite for anything that identifies a session.',
+    fix: (line, lineNumber, file) => {
+      const replacement = cookieFlagFix(line);
+      return replacement === undefined
+        ? undefined
+        : { kind: 'replace-line', file: file.path, line: lineNumber, replacement, rewrite: true };
+    }
   },
   {
     kind: 'line',
@@ -157,10 +193,31 @@ export const AGNOSTIC_RULES: readonly WebRule[] = [
     confidence: 'certain',
     message:
       'CORS allows every origin and also allows credentials, so any site can make authenticated requests as your logged-in users. Name the origins you trust, or drop credentials.',
-    find: (file) =>
-      forEachBlock(file, CORS_TRIGGER, (blockText, line) =>
-        WILDCARD_ORIGIN.test(blockText) && CREDENTIALS_ON.test(blockText) ? { line } : undefined
-      )
+    find: (file) => {
+      const lines = file.content.split('\n');
+
+      return forEachBlock(file, CORS_TRIGGER, (blockText, line) => {
+        if (!WILDCARD_ORIGIN.test(blockText) || !CREDENTIALS_ON.test(blockText)) return undefined;
+
+        // Anchor on the credentials line, because that is the line the fix
+        // rewrites — and dropping credentials is the safe half of the pair:
+        // narrowing the origin needs a value only the author knows.
+        const offset = lines.slice(line - 1).findIndex((candidate) => CREDENTIALS_ON.test(candidate));
+        if (offset === -1) return { line };
+
+        const credentialsLine = line + offset;
+        return {
+          line: credentialsLine,
+          fix: {
+            kind: 'replace-line',
+            file: file.path,
+            line: credentialsLine,
+            replacement: '',
+            rewrite: true
+          }
+        };
+      });
+    }
   },
   {
     kind: 'block',

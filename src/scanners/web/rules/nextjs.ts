@@ -149,7 +149,19 @@ export const NEXTJS_RULES: readonly WebRule[] = [
     confidence: 'certain',
     regex: /domains\s*:\s*\[[^\]]*['"]\*['"]|hostname\s*:\s*['"]\*\*?['"]/,
     message:
-      'The image optimiser will fetch from any host, which turns your server into an open image proxy others can run their bandwidth through. List the hosts you actually serve images from.'
+      'The image optimiser will fetch from any host, which turns your server into an open image proxy others can run their bandwidth through. List the hosts you actually serve images from.',
+    fix: (line, lineNumber, file) => {
+      // Only the domains-array form has an unambiguous single-line rewrite;
+      // pruning one entry from remotePatterns is not a line edit.
+      if (!/domains\s*:\s*\[[^\]]*['"]\*['"]/.test(line)) return undefined;
+      return {
+        kind: 'replace-line',
+        file: file.path,
+        line: lineNumber,
+        replacement: line.replace(/(domains\s*:\s*)\[[^\]]*\]/, '$1[]'),
+        rewrite: true
+      };
+    }
   },
   {
     kind: 'line',
