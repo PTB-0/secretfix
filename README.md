@@ -40,6 +40,7 @@ Requires Node.js 18 or newer.
 | `secrets` | AWS, Stripe, GitHub, Slack, Google, Anthropic and OpenAI keys; private key blocks; passwords inside connection strings; assigned `apiKey`/`token`/`password` literals; high-entropy strings that look like credentials; and files that must never be staged at all (`.env`, `id_rsa`, `*.pem`, `credentials.json`, `.npmrc`) |
 | `owasp` | `eval()` / `new Function()`, SQL built by string concatenation, shell commands built by string concatenation, `innerHTML` / `dangerouslySetInnerHTML`, disabled TLS verification, MD5/SHA-1 password hashing, hardcoded password literals, `Math.random()` used where a CSPRNG belongs |
 | `deps` | Vulnerable npm dependencies, via `npm audit` cross-referenced with [OSV.dev](https://osv.dev) |
+| `web` | Web-application holes: no-auth API routes, request bodies written straight to the database, secrets compiled into the browser bundle, wide-open CORS/Firebase/Supabase rules, missing security headers |
 
 **Only the lines your commit adds are judged.** Install SecretFix into a codebase
 that already has an `eval()` in it and you can still commit — you only answer for
@@ -59,6 +60,50 @@ By default **critical and high** findings block the commit; **medium and low** a
 printed as notes and let it through. Blocking on every `Math.random()` teaches
 people to reach for `--no-verify`, which is worse than not gating at all. Change
 the line with `"failOn": "medium"` or `--fail-on medium`.
+
+### Web scanner
+
+Catches the web-application holes the OWASP pattern scanner does not see: API
+routes with no auth check, request bodies passed straight into database writes,
+secrets compiled into the browser bundle, wide-open Firebase or Supabase rules,
+and missing security headers. 26 rules across four families, and only the ones
+matching your stack run — the scanner reads `package.json` and skips the Next.js
+rules in an Express project, and vice versa.
+
+Some of these cannot be proven from the code alone. "This route has no auth
+check" is true unless the check lives in `middleware.ts`, in a `withAuth()`
+wrapper, or in a shared helper — so SecretFix looks in those places first, and
+where it still cannot tell, it prints a note instead of blocking your commit.
+
+Turn the family off with `--no-web`, or silence a single rule:
+
+```json
+{
+  "webRules": { "nextjs/route-handler-no-auth": false }
+}
+```
+
+Fixes are automated only where the correct change is mechanical — adding cookie
+flags, writing a `headers()` block, narrowing `express.static`. For anything
+where only you know the right answer (which fields an update should accept, which
+origins CORS should allow), SecretFix explains the problem and blocks the commit
+rather than guessing. Before applying any rewrite, it shows a `-`/`+` preview of
+the line it's about to change.
+
+#### Working with an AI agent
+
+```bash
+secretfix scan --json > .secretfix-report.json
+```
+
+Then tell your agent to fix everything in the report. It already has your whole
+repository in context, and this costs nothing extra.
+
+Alternatively `--ai` lets SecretFix propose the patch itself. It is off by
+default because it sends the affected code to the Anthropic API. No API key is
+required if you have run `ant auth login` — the SDK picks that profile up
+automatically. Note that Claude Code may then warn about a conflict with its own
+`/login` credential; keep one of the two.
 
 ## Fixes
 
@@ -89,16 +134,19 @@ not actually resolve the problem still blocks the commit.
   "secrets": true,
   "owasp": true,
   "deps": true,
+  "web": true,
   "scanMode": "added-lines",
   "failOn": "high",
   "ignoreLines": {
     "src/fixtures.ts": [12, 13]
   },
-  "excludeFiles": ["test/fixtures/", ".generated.ts"]
+  "excludeFiles": ["test/fixtures/", ".generated.ts"],
+  "webRules": { "nextjs/route-handler-no-auth": false }
 }
 ```
 
-- `secrets` / `owasp` / `deps` — turn a scanner off entirely.
+- `secrets` / `owasp` / `deps` / `web` — turn a scanner off entirely.
+- `webRules` — disable individual web rules by id, without turning off the whole family.
 - `scanMode` — `"added-lines"` (default) judges only what the commit introduces;
   `"whole-file"` judges every line of every staged file.
 - `failOn` — lowest severity that blocks: `"critical"`, `"high"` (default),
@@ -123,8 +171,11 @@ Flags override the config file for one run:
 secretfix scan --no-deps            # skip the dependency scan (it can hit the network)
 secretfix scan --no-owasp
 secretfix scan --no-secrets
+secretfix scan --no-web             # skip the web-application rule family
 secretfix scan --whole-file         # audit whole files, not just added lines
 secretfix scan --fail-on medium     # let medium findings block too
+secretfix scan --json > report.json # print findings as JSON for a coding agent, don't prompt or block
+secretfix scan --ai                 # let Claude propose a patch for findings with no automatic fix
 ```
 
 ## Exit codes

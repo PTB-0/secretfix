@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, existsSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildHookScript } from '../../src/commands/init.js';
+import { scanCommand } from '../../src/commands/scan.js';
 
 const binPath = join(process.cwd(), 'bin', 'secretfix.js');
 
@@ -134,5 +135,85 @@ describe('git commit through the hook (e2e)', () => {
     execFileSync('git', ['commit', '-m', 'add clean file'], { cwd: repoDir, encoding: 'utf8', stdio: 'pipe' });
 
     expect(execFileSync('git', ['log', '--oneline'], { cwd: repoDir, encoding: 'utf8' })).toContain('add clean file');
+  });
+});
+
+describe('web scanner (e2e)', () => {
+  it('blocks a commit that stages mass assignment, and offers no fix for it', async () => {
+    writeFileSync(join(repoDir, 'package.json'), JSON.stringify({ dependencies: { next: '16.0.0' } }));
+    git(['add', 'package.json']);
+    mkdirSync(join(repoDir, 'app', 'api', 'user'), { recursive: true });
+    writeFileSync(
+      join(repoDir, 'app', 'api', 'user', 'route.ts'),
+      [
+        'export async function PATCH(req) {',
+        '  const session = await auth();',
+        '  const body = await req.json();',
+        '  return prisma.user.update({ where: { id: session.userId }, data: body });',
+        '}',
+        ''
+      ].join('\n')
+    );
+    git(['add', 'app/api/user/route.ts']);
+
+    const answers: string[] = [];
+    const code = await scanCommand({
+      cwd: repoDir,
+      noDeps: true,
+      prompt: async () => {
+        answers.push('asked');
+        return 'y';
+      }
+    });
+
+    expect(code).toBe(1);
+    // No fix exists, so the user is never asked — the finding goes straight to blocked.
+    expect(answers).toEqual([]);
+  });
+
+  it('fixes a cookie finding, re-stages, and lets the commit through', async () => {
+    writeFileSync(
+      join(repoDir, 'server.js'),
+      ['const app = express();', "app.use(helmet());", "app.get('/', (req, res) => {", "  res.cookie('session', 't');", '  res.end();', '});', ''].join(
+        '\n'
+      )
+    );
+    git(['add', 'server.js']);
+
+    const code = await scanCommand({ cwd: repoDir, noDeps: true, prompt: async () => 'y' });
+
+    expect(code).toBe(0);
+    const updated = readFileSync(join(repoDir, 'server.js'), 'utf8');
+    expect(updated).toContain('httpOnly: true');
+    // The fix must be in the index, not just the working tree.
+    expect(execFileSync('git', ['diff', '--cached', '--', 'server.js'], { cwd: repoDir, encoding: 'utf8' })).toContain(
+      'httpOnly: true'
+    );
+  });
+
+  it('reports nothing for a route handler that middleware already protects', async () => {
+    writeFileSync(join(repoDir, 'package.json'), JSON.stringify({ dependencies: { next: '16.0.0' } }));
+    writeFileSync(join(repoDir, 'middleware.ts'), "export const config = { matcher: ['/api/admin/:path*'] };\n");
+    git(['add', 'package.json', 'middleware.ts']);
+    mkdirSync(join(repoDir, 'app', 'api', 'admin', 'users'), { recursive: true });
+    writeFileSync(
+      join(repoDir, 'app', 'api', 'admin', 'users', 'route.ts'),
+      'export async function POST(req) {\n  return save(await req.json());\n}\n'
+    );
+    git(['add', 'app/api/admin/users/route.ts']);
+
+    expect(await scanCommand({ cwd: repoDir, noDeps: true, prompt: async () => 'skip' })).toBe(0);
+  });
+
+  it('skips Next.js rules entirely in a project that is not Next.js', async () => {
+    writeFileSync(join(repoDir, 'package.json'), JSON.stringify({ dependencies: { express: '4.0.0' } }));
+    git(['add', 'package.json']);
+    writeFileSync(join(repoDir, '.env'), 'NEXT_PUBLIC_API_KEY=abc\n');
+    git(['add', '.env']);
+
+    // noSecrets: the secrets scanner blocks any staged .env file by its mere
+    // presence, whatever it contains — unrelated to what this test checks,
+    // which is that the *web* scanner's Next.js-only rules don't fire here.
+    expect(await scanCommand({ cwd: repoDir, noDeps: true, noSecrets: true, prompt: async () => 'skip' })).toBe(0);
   });
 });
