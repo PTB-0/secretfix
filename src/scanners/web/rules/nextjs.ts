@@ -19,6 +19,33 @@ const ROUTE_FILE = /(?:^|\/)route\.[cm]?[jt]sx?$/;
 const ROUTE_HANDLER = /export\s+(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE)\b|export\s+const\s+(GET|POST|PUT|PATCH|DELETE)\s*=/;
 const EXPORTED_ASYNC_FUNCTION = /export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/;
 
+const DOMAINS_ARRAY = /(domains\s*:\s*)\[([^\]]*)\]/;
+/** A comma-separated list of plain quoted strings, optionally with a trailing comma. */
+const SIMPLE_STRING_LIST = /^\s*(?:(?:'[^']*'|"[^"]*")\s*,\s*)*(?:'[^']*'|"[^"]*")?\s*$/;
+
+/**
+ * Removes just the wildcard entry from a `domains: [...]` array, leaving
+ * every other host in place. Declines (returns undefined) unless every
+ * entry in the array is a plain quoted string — a spread, an expression,
+ * or a `process.env.X` reference is not something this can safely
+ * re-serialize on one line — and also when the array turns out to hold no
+ * wildcard entry after all.
+ */
+function domainsWildcardFix(line: string): string | undefined {
+  const match = DOMAINS_ARRAY.exec(line);
+  if (match === null) return undefined;
+
+  const inner = match[2];
+  if (!SIMPLE_STRING_LIST.test(inner)) return undefined;
+
+  const entries = inner.match(/'[^']*'|"[^"]*"/g) ?? [];
+  const kept = entries.filter((entry) => entry !== "'*'" && entry !== '"*"');
+  if (kept.length === entries.length) return undefined;
+
+  const rebuilt = `[${kept.join(', ')}]`;
+  return `${line.slice(0, match.index)}${match[1]}${rebuilt}${line.slice(match.index + match[0].length)}`;
+}
+
 const NEXT_CONFIG = /(?:^|\/)next\.config\.[cm]?[jt]s$/;
 const MIDDLEWARE_FILE = /(?:^|\/)middleware\.[cm]?[jt]s$/;
 const HEADERS_BLOCK = /\bheaders\s*\(\s*\)|\bheaders\s*:\s*(?:async\s*)?\(/;
@@ -151,16 +178,12 @@ export const NEXTJS_RULES: readonly WebRule[] = [
     message:
       'The image optimiser will fetch from any host, which turns your server into an open image proxy others can run their bandwidth through. List the hosts you actually serve images from.',
     fix: (line, lineNumber, file) => {
-      // Only the domains-array form has an unambiguous single-line rewrite;
+      // Only the domains-array form has an unambiguous rewrite at all;
       // pruning one entry from remotePatterns is not a line edit.
-      if (!/domains\s*:\s*\[[^\]]*['"]\*['"]/.test(line)) return undefined;
-      return {
-        kind: 'replace-line',
-        file: file.path,
-        line: lineNumber,
-        replacement: line.replace(/(domains\s*:\s*)\[[^\]]*\]/, '$1[]'),
-        rewrite: true
-      };
+      const replacement = domainsWildcardFix(line);
+      return replacement === undefined
+        ? undefined
+        : { kind: 'replace-line', file: file.path, line: lineNumber, replacement, rewrite: true };
     }
   },
   {

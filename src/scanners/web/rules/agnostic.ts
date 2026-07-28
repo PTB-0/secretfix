@@ -28,6 +28,9 @@ const DATA_ASSIGNMENT =
 const CORS_TRIGGER = /\bcors\s*\(|Access-Control-Allow-Origin/;
 const WILDCARD_ORIGIN = /(?:origin|Access-Control-Allow-Origin)\s*[:=]\s*['"`]\*['"`]/;
 const CREDENTIALS_ON = /credentials\s*:\s*true|Access-Control-Allow-Credentials\s*[:=]\s*['"`]?true/;
+/** A line holding nothing but the credentials property — the only shape safe to blank. */
+const CREDENTIALS_ONLY_LINE =
+  /^\s*(?:credentials\s*:\s*true|Access-Control-Allow-Credentials\s*[:=]\s*['"`]?true['"`]?)\s*[,;]?\s*$/;
 
 const AUTH_ENDPOINT = /(?:^|\/)(?:login|signin|sign-in|register|signup|sign-up|auth|token|password|reset)(?:\/|$)/i;
 const AUTH_HANDLER = /\b(?:export\s+(?:async\s+)?function\s+(?:POST|PUT)|export\s+const\s+(?:POST|PUT)\s*=|app\.post\s*\()/;
@@ -37,30 +40,136 @@ const COOKIE_FLAGS = "httpOnly: true, secure: true, sameSite: 'lax'";
 const COOKIE_CALL = /\b(?:res\.cookie|cookies\(\)\.set|cookies\.set|response\.cookies\.set)\s*\(/;
 
 /**
- * Adds the missing flags to a single-line cookie call: into an existing options
- * object where there is one, otherwise as a new final argument. Returns
- * undefined when the shape is not one of those two, so an unusual call is left
- * to the author rather than mangled.
+ * Finds the paren that closes the one opened at `openIndex`, counting depth
+ * and treating quoted/template text as opaque so a `)` inside a string can
+ * never end the call early. Returns undefined when depth never returns to
+ * zero — the call's own close is on a later line, so there is nothing safe
+ * to rewrite on this one.
+ */
+function findMatchingParen(line: string, openIndex: number): number | undefined {
+  let depth = 0;
+  let quote: string | undefined;
+
+  for (let i = openIndex; i < line.length; i += 1) {
+    const ch = line[i];
+
+    if (quote !== undefined) {
+      if (ch === '\\') i += 1;
+      else if (ch === quote) quote = undefined;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+    } else if (ch === '(') {
+      depth += 1;
+    } else if (ch === ')') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Splits call-argument text on its top-level commas — never the ones inside
+ * a nested call, array, object literal, or string. Returns undefined if
+ * brackets never balance across the whole span, which guards against a
+ * malformed line rather than mis-splitting one.
+ */
+function splitTopLevelArgs(args: string): string[] | undefined {
+  const segments: string[] = [];
+  let depth = 0;
+  let quote: string | undefined;
+  let start = 0;
+
+  for (let i = 0; i < args.length; i += 1) {
+    const ch = args[i];
+
+    if (quote !== undefined) {
+      if (ch === '\\') i += 1;
+      else if (ch === quote) quote = undefined;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+    } else if (ch === '(' || ch === '[' || ch === '{') {
+      depth += 1;
+    } else if (ch === ')' || ch === ']' || ch === '}') {
+      depth -= 1;
+    } else if (ch === ',' && depth === 0) {
+      segments.push(args.slice(start, i));
+      start = i + 1;
+    }
+  }
+
+  if (depth !== 0) return undefined;
+  segments.push(args.slice(start));
+  return segments;
+}
+
+/**
+ * Adds the missing flags to a single-line cookie call, in one of the two
+ * shapes that have an unambiguous rewrite:
+ *
+ *  - no options object at all (exactly two arguments) — append one as a
+ *    third argument, whatever the value argument itself contains.
+ *  - a trailing options object that is a plain `{ ... }` literal, with no
+ *    `secure`/`sameSite` already set and no spread — merge the flags in.
+ *
+ * Everything else declines by returning undefined: a third argument that
+ * is not a literal object (a variable, a ternary — nowhere safe to splice
+ * into); an options object that already sets one of these flags (a literal
+ * duplicate key is a TS compile error, and at runtime the later one simply
+ * wins, so the fix would be inert); a spread, which could silently
+ * override the flags later; a call whose own closing paren is not on this
+ * line; and trailing content after that paren that is more than an
+ * optional `;` and/or a `//` comment — a second statement on the line
+ * (`res.clearCookie(...)`, `logger.info(...)`) must never receive the
+ * flags meant for the cookie call.
  */
 function cookieFlagFix(line: string): string | undefined {
   const call = COOKIE_CALL.exec(line);
   if (call === null) return undefined;
 
   const openIndex = line.indexOf('(', call.index + call[0].length - 1);
-  const closeIndex = line.lastIndexOf(')');
-  if (openIndex === -1 || closeIndex <= openIndex) return undefined;
+  if (openIndex === -1) return undefined;
+
+  const closeIndex = findMatchingParen(line, openIndex);
+  if (closeIndex === undefined) return undefined;
+
+  const rest = line.slice(closeIndex + 1);
+  if (!/^\s*;?\s*(?:\/\/.*)?$/.test(rest)) return undefined;
 
   const args = line.slice(openIndex + 1, closeIndex);
-  const braceIndex = args.indexOf('{');
+  const segments = splitTopLevelArgs(args);
+  if (segments === undefined || segments.length < 2) return undefined;
 
-  if (braceIndex !== -1) {
-    const inner = args.slice(braceIndex + 1);
+  const last = segments[segments.length - 1];
+  const lastTrimmed = last.trim();
+  const hasOptionsObject = segments.length >= 3 && lastTrimmed.startsWith('{') && lastTrimmed.endsWith('}');
+
+  if (hasOptionsObject) {
+    if (/\.{3}/.test(lastTrimmed) || /\bsecure\s*:/.test(lastTrimmed) || /\bsameSite\s*:/.test(lastTrimmed)) {
+      return undefined;
+    }
+
+    const braceIndex = last.indexOf('{');
+    const inner = last.slice(braceIndex + 1);
     const separator = inner.trim() === '' || inner.trim().startsWith('}') ? '' : ', ';
-    const patched = `${args.slice(0, braceIndex + 1)} ${COOKIE_FLAGS}${separator}${inner.replace(/^\s+/, '')}`;
-    return `${line.slice(0, openIndex + 1)}${patched}${line.slice(closeIndex)}`;
+    const mergedLast = `${last.slice(0, braceIndex + 1)} ${COOKIE_FLAGS}${separator}${inner.replace(/^\s+/, '')}`;
+    const mergedArgs = [...segments.slice(0, -1), mergedLast].join(',');
+    return `${line.slice(0, openIndex + 1)}${mergedArgs}${line.slice(closeIndex)}`;
   }
 
-  return `${line.slice(0, closeIndex)}, { ${COOKIE_FLAGS} }${line.slice(closeIndex)}`;
+  if (segments.length === 2) {
+    const appendedArgs = `${segments.join(',')}, { ${COOKIE_FLAGS} }`;
+    return `${line.slice(0, openIndex + 1)}${appendedArgs}${line.slice(closeIndex)}`;
+  }
+
+  return undefined;
 }
 
 export const AGNOSTIC_RULES: readonly WebRule[] = [
@@ -193,19 +302,31 @@ export const AGNOSTIC_RULES: readonly WebRule[] = [
     confidence: 'certain',
     message:
       'CORS allows every origin and also allows credentials, so any site can make authenticated requests as your logged-in users. Name the origins you trust, or drop credentials.',
-    find: (file) => {
-      const lines = file.content.split('\n');
-
-      return forEachBlock(file, CORS_TRIGGER, (blockText, line) => {
+    find: (file) =>
+      forEachBlock(file, CORS_TRIGGER, (blockText, line) => {
         if (!WILDCARD_ORIGIN.test(blockText) || !CREDENTIALS_ON.test(blockText)) return undefined;
 
         // Anchor on the credentials line, because that is the line the fix
         // rewrites — and dropping credentials is the safe half of the pair:
-        // narrowing the origin needs a value only the author knows.
-        const offset = lines.slice(line - 1).findIndex((candidate) => CREDENTIALS_ON.test(candidate));
+        // narrowing the origin needs a value only the author knows. Bound
+        // the search to this block's own lines (blockText, not the whole
+        // file): CREDENTIALS_ON's `\s*` matches across newlines, so a config
+        // that splits `credentials:` and `true` onto separate lines can
+        // satisfy the block-wide test above while no single line matches —
+        // an unbounded search would then walk past the block into unrelated
+        // code and blank the wrong line.
+        const blockLines = blockText.split('\n');
+        const offset = blockLines.findIndex((candidate) => CREDENTIALS_ON.test(candidate));
         if (offset === -1) return { line };
 
         const credentialsLine = line + offset;
+
+        // Only rewrite when that line holds nothing but the credentials
+        // property. On a single-line call the same line also carries the
+        // origin, the rest of the cors() call, and possibly a second
+        // statement — blanking it would delete code, not just the flag.
+        if (!CREDENTIALS_ONLY_LINE.test(blockLines[offset])) return { line: credentialsLine };
+
         return {
           line: credentialsLine,
           fix: {
@@ -216,8 +337,7 @@ export const AGNOSTIC_RULES: readonly WebRule[] = [
             rewrite: true
           }
         };
-      });
-    }
+      })
   },
   {
     kind: 'block',
