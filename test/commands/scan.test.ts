@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -301,5 +301,50 @@ describe('scanCommand', () => {
     const exitCode = await scanCommand({ cwd: repoDir, prompt: async () => 'skip' as const, noDeps: true });
 
     expect(exitCode).toBe(0);
+  });
+
+  it('--json prints a report and does not block', async () => {
+    const printed: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((message: unknown) => {
+      printed.push(String(message));
+    });
+
+    mkdirSync(join(repoDir, 'app', 'api', 'proxy'), { recursive: true });
+    writeFileSync(
+      join(repoDir, 'app', 'api', 'proxy', 'route.ts'),
+      'export async function GET(req) {\n  return fetch(req.query.url);\n}\n'
+    );
+    git(['add', 'app/api/proxy/route.ts']);
+
+    const code = await scanCommand({
+      cwd: repoDir,
+      json: true,
+      noDeps: true,
+      prompt: async () => 'skip' as const
+    });
+    log.mockRestore();
+
+    expect(code).toBe(0);
+    const report = JSON.parse(printed.join('\n')) as { version: number; findings: { rule?: string }[] };
+    expect(report.version).toBe(1);
+    expect(report.findings.some((finding) => finding.rule === 'agnostic/ssrf')).toBe(true);
+  });
+
+  it('--json never prompts', async () => {
+    mkdirSync(join(repoDir, 'app', 'api', 'proxy'), { recursive: true });
+    writeFileSync(
+      join(repoDir, 'app', 'api', 'proxy', 'route.ts'),
+      'export async function GET(req) {\n  return fetch(req.query.url);\n}\n'
+    );
+    git(['add', 'app/api/proxy/route.ts']);
+
+    await scanCommand({
+      cwd: repoDir,
+      json: true,
+      noDeps: true,
+      prompt: async () => {
+        throw new Error('should not prompt in reporting mode');
+      }
+    });
   });
 });

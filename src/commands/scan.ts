@@ -17,12 +17,14 @@ import { depsScanner } from '../scanners/deps.js';
 import { createScanContext } from '../scanners/web/context.js';
 import { createWebScanner, ALL_RULES } from '../scanners/web/index.js';
 import { resolveFindings, type PromptFn } from '../fix/interactive.js';
+import { buildReport } from '../report.js';
 import type { Finding, Scanner, StagedFile } from '../types.js';
 import type { ScanContext } from '../scanners/web/types.js';
 
 export interface ScanOptions extends CliOverrides {
   cwd?: string;
   prompt: PromptFn;
+  json?: boolean;
 }
 
 /**
@@ -97,6 +99,13 @@ export async function scanCommand(options: ScanOptions): Promise<number> {
 
   const { findings, warnings } = await collectFindings(scanners, config, cwd);
 
+  // Reporting mode: emit the findings and exit cleanly. This is run by hand,
+  // not by the hook, so it must never prompt and never block.
+  if (options.json === true) {
+    console.log(JSON.stringify(buildReport(findings), null, 2));
+    return 0;
+  }
+
   for (const warning of warnings) {
     console.warn(`secretfix: warning — ${warning}`);
   }
@@ -117,7 +126,9 @@ export async function scanCommand(options: ScanOptions): Promise<number> {
   if (unresolved.length > 0) {
     console.error(
       `\nsecretfix: ${unresolved.length} unresolved issue(s). Commit blocked.\n` +
-        'Fix them, or silence a line with "// secretfix-ignore-next-line", or run "git commit --no-verify" to bypass.'
+        'Fix them, or silence a line with "// secretfix-ignore-next-line", or run "git commit --no-verify" to bypass.\n' +
+        'Working with an AI coding agent? Run "secretfix scan --json > .secretfix-report.json"\n' +
+        'and tell it: "fix everything in this report".'
     );
     return 1;
   }

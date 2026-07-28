@@ -80,6 +80,7 @@ export function buildProgram(): Command {
     .option('--no-web', 'disable the web-application rule family')
     .option('--whole-file', 'scan entire staged files, not only the lines this commit adds')
     .option('--fail-on <severity>', 'lowest severity that blocks the commit (critical|high|medium|low)')
+    .option('--json', 'print findings as JSON and exit without prompting or blocking')
     .action(
       async (opts: {
         secrets: boolean;
@@ -88,6 +89,7 @@ export function buildProgram(): Command {
         web: boolean;
         wholeFile?: boolean;
         failOn?: string;
+        json?: boolean;
       }) => {
         // Fail closed: anything that ends this process before the scan reports a
         // clean result — a crash, an unsettled promise — must block the commit.
@@ -99,6 +101,7 @@ export function buildProgram(): Command {
           noWeb: !opts.web,
           wholeFile: opts.wholeFile,
           failOn: opts.failOn,
+          json: opts.json,
           prompt: createPrompt()
         });
       }
