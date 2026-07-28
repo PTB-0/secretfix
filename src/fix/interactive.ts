@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Finding, FixDescriptor } from '../types.js';
-import { applyFix } from './fixers.js';
+import { applyFix, SECURITY_HEADERS_BLOCK } from './fixers.js';
 import { restageFile } from '../git.js';
 
 export type PromptFn = (finding: Finding) => Promise<'y' | 'n' | 'skip'>;
@@ -47,6 +47,16 @@ const readWorkingTreeLine: ReadLineFn = (file, line, cwd) => {
  * rewrite is not, so the author sees the new line before saying yes.
  */
 function previewRewrite(fix: FixDescriptor, cwd: string, readLine: ReadLineFn): void {
+  if (fix.kind === 'add-security-headers') {
+    console.log(`\n  Inserting into ${fix.file}:`);
+    for (const added of SECURITY_HEADERS_BLOCK.split('\n')) {
+      if (added.length === 0) continue;
+      console.log(`  + ${added}`);
+    }
+    console.log('');
+    return;
+  }
+
   if (fix.kind !== 'replace-line' || fix.rewrite !== true) return;
 
   const before = readLine(fix.file, fix.line, cwd);

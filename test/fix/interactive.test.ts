@@ -339,6 +339,27 @@ describe('resolveFindings rewrite preview', () => {
     rmSync(previewDir, { recursive: true, force: true });
   });
 
+  it('shows the headers() block before asking about an add-security-headers fix', async () => {
+    const printed: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((message: unknown) => {
+      printed.push(String(message));
+    });
+
+    const headersFinding: Finding = {
+      scanner: 'web',
+      severity: 'high',
+      file: 'next.config.mjs',
+      line: 1,
+      message: 'no security headers',
+      fix: { kind: 'add-security-headers', file: 'next.config.mjs' }
+    };
+
+    await resolveFindings([headersFinding], '/repo', async () => 'n', () => [], () => undefined);
+
+    log.mockRestore();
+    expect(printed.join('\n')).toContain('Content-Security-Policy');
+  });
+
   it('shows a before/after diff before asking about a rewrite', async () => {
     const printed: string[] = [];
     const log = vi.spyOn(console, 'log').mockImplementation((message: unknown) => {

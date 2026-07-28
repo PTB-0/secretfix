@@ -59,7 +59,7 @@ function readLines(path: string, file: string, line: number): string[] {
  * because Next.js injects inline styles and a stricter value would break the
  * app on the spot — a header that gets reverted protects nobody.
  */
-const SECURITY_HEADERS_BLOCK = `  async headers() {
+export const SECURITY_HEADERS_BLOCK = `  async headers() {
     return [
       {
         source: '/(.*)',
